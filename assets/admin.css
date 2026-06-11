@@ -1,0 +1,80 @@
+.aipt-row {
+	padding: 8px 0;
+	border-bottom: 1px solid #eee;
+}
+
+.aipt-row:last-child {
+	border-bottom: 0;
+}
+
+.aipt-row strong {
+	display: block;
+	margin-bottom: 4px;
+}
+
+.aipt-row .aipt-actions a {
+	margin-right: 6px;
+}
+
+.aipt-status {
+	margin-top: 6px;
+	font-size: 12px;
+}
+
+.aipt-error {
+	color: #b32d2e;
+}
+
+.aipt-ok {
+	color: #00a32a;
+}
+
+#aipt-test-result {
+	margin-left: 8px;
+}
+
+.aipt-advanced summary {
+	cursor: pointer;
+}
+
+.aipt-advanced summary h2 {
+	display: inline-block;
+	margin: 16px 0 8px;
+}
+
+.aipt-acf-group {
+	margin: 0 0 12px;
+	padding: 8px 12px;
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	max-width: 720px;
+}
+
+.aipt-acf-tree,
+.aipt-acf-tree ul {
+	margin: 4px 0 4px 18px;
+	list-style: none;
+}
+
+.aipt-acf-tree li {
+	margin: 2px 0;
+}
+
+.aipt-acf-tree code {
+	font-size: 11px;
+	opacity: 0.7;
+}
+
+.aipt-acf-branch {
+	font-weight: 600;
+}
+
+.aipt-acf-copy {
+	color: #787c82;
+}
+
+.aipt-cpt {
+	display: inline-block;
+	margin: 0 16px 6px 0;
+}

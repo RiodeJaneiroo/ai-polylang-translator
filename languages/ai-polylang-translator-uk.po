@@ -160,8 +160,8 @@ msgid "Site context for the translator"
 msgstr "Контекст сайту для перекладача"
 
 #: includes/class-aipt-settings.php:240
-msgid "E.g.: medical clinic in Kyiv — translate terminology carefully"
-msgstr "Наприклад: медична клініка в Києві — термінологію перекладати обережно"
+msgid "E.g.: company website — professional tone, do not translate brand and product names"
+msgstr "Наприклад: сайт компанії — діловий тон, назви брендів і продуктів не перекладати"
 
 #: includes/class-aipt-settings.php:241
 msgid "Appended to the prompt — helps the model maintain topic and tone."

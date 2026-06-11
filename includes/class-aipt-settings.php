@@ -256,7 +256,7 @@ class AIPT_Settings {
 
 				<?php $this->render_usage_panel(); ?>
 
-				<details class="aipt-panel aipt-advanced" <?php echo empty($settings['field_overrides']) ? '' : 'open'; ?>>
+				<details class="aipt-panel aipt-advanced">
 					<summary><h2 class="aipt-panel-title"><?php esc_html_e('Advanced settings', 'ai-polylang-translator'); ?></h2></summary>
 
 					<table class="form-table" role="presentation">

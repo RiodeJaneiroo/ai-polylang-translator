@@ -100,8 +100,14 @@ class AIPT_Gateway {
 			'max_tokens'  => (int) ($overrides['max_tokens'] ?? 16000),
 			'stream'      => false,
 		);
+		if (str_starts_with($settings['model'], 'google/gemini-2.5-')) {
+			$body['reasoning'] = array(
+				'effort'  => 'none',
+				'exclude' => true,
+			);
+		}
 		if ($overrides['json_mode'] ?? true) {
-			$body['response_format'] = array('type' => 'json_object');
+			$body['response_format'] = array('type' => 'json');
 		}
 
 		$response = self::post($body, $api_key, (int) $settings['timeout']);
@@ -142,14 +148,35 @@ class AIPT_Gateway {
 			return new WP_Error('aipt_http_' . $code, sprintf(__('AI Gateway вернул ошибку %1$d: %2$s', 'ai-polylang-translator'), $code, $excerpt));
 		}
 
-		$data    = json_decode($raw, true);
-		$content = $data['choices'][0]['message']['content'] ?? null;
-		if (!is_string($content) || $content === '') {
-			return new WP_Error('aipt_empty', __('Пустой ответ от модели.', 'ai-polylang-translator'));
+		$data = json_decode($raw, true);
+		if (!is_array($data)) {
+			return new WP_Error(
+				'aipt_bad_response',
+				__('AI Gateway вернул некорректный ответ.', 'ai-polylang-translator')
+			);
 		}
 
-		if (($data['choices'][0]['finish_reason'] ?? '') === 'length') {
+		$choice        = $data['choices'][0] ?? array();
+		$finish_reason = (string) ($choice['finish_reason'] ?? '');
+		if ($finish_reason === 'length') {
 			return new WP_Error('aipt_truncated', __('Ответ модели обрезан по лимиту токенов — попробуйте другую модель или уменьшите объём текста.', 'ai-polylang-translator'));
+		}
+		if ($finish_reason === 'content_filter') {
+			return new WP_Error('aipt_content_filter', __('Модель отклонила ответ из-за фильтра безопасности.', 'ai-polylang-translator'));
+		}
+
+		$content = $choice['message']['content'] ?? null;
+		if (!is_string($content) || trim($content) === '') {
+			$generation_id = sanitize_text_field((string) ($data['id'] ?? ''));
+			$message = __('Модель завершила запрос без текстового ответа.', 'ai-polylang-translator');
+			if ($generation_id !== '') {
+				$message .= ' ' . sprintf(
+					/* translators: %s: Vercel AI Gateway generation ID */
+					__('ID запроса: %s.', 'ai-polylang-translator'),
+					$generation_id
+				);
+			}
+			return new WP_Error('aipt_empty', $message);
 		}
 
 		return $content;
@@ -182,7 +209,7 @@ class AIPT_Gateway {
 	public static function test_key(string $key) {
 		$result = self::request(
 			array(array('role' => 'user', 'content' => 'Reply with the single word: ok')),
-			array('api_key' => $key, 'max_tokens' => 16, 'json_mode' => false)
+			array('api_key' => $key, 'max_tokens' => 128, 'json_mode' => false)
 		);
 		if (is_wp_error($result)) {
 			return $result;

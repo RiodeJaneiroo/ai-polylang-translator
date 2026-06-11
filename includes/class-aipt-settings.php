@@ -138,7 +138,7 @@ class AIPT_Settings {
 			'nonce'   => wp_create_nonce('aipt_test_key'),
 			'i18n'    => array(
 				'testing' => __('Проверяю…', 'ai-polylang-translator'),
-				'ok'      => __('✓ Ключ работает', 'ai-polylang-translator'),
+				'ok'      => __('✓ Ключ работает и сохранён', 'ai-polylang-translator'),
 			),
 		));
 	}
@@ -148,7 +148,8 @@ class AIPT_Settings {
 		if (!current_user_can('manage_options')) {
 			wp_send_json_error(array('message' => __('Недостаточно прав.', 'ai-polylang-translator')));
 		}
-		$key = trim((string) ($_POST['key'] ?? ''));
+		$submitted_key = trim((string) wp_unslash($_POST['key'] ?? ''));
+		$key           = $submitted_key;
 		if ($key === '') {
 			$key = self::api_key();
 		}
@@ -158,6 +159,9 @@ class AIPT_Settings {
 		$result = AIPT_Gateway::test_key($key);
 		if (is_wp_error($result)) {
 			wp_send_json_error(array('message' => $result->get_error_message()));
+		}
+		if ($submitted_key !== '') {
+			update_option('aipt_api_key', $submitted_key, false);
 		}
 		wp_send_json_success();
 	}
@@ -182,9 +186,9 @@ class AIPT_Settings {
 							<span id="aipt-test-result"></span>
 							<p class="description">
 								<?php if ($key !== '') : ?>
-									<?php esc_html_e('Ключ сохранён. Оставьте поле пустым, чтобы не менять его.', 'ai-polylang-translator'); ?>
+									<?php esc_html_e('Ключ сохранён. Оставьте поле пустым, чтобы не менять его. Успешная проверка нового ключа также сохраняет его.', 'ai-polylang-translator'); ?>
 								<?php else : ?>
-									<?php echo wp_kses_post(__('Получите ключ в <a href="https://vercel.com/ai-gateway" target="_blank" rel="noopener">Vercel AI Gateway</a>.', 'ai-polylang-translator')); ?>
+									<?php echo wp_kses_post(__('Получите ключ в <a href="https://vercel.com/ai-gateway" target="_blank" rel="noopener">Vercel AI Gateway</a>. Успешная проверка сохранит введённый ключ.', 'ai-polylang-translator')); ?>
 								<?php endif; ?>
 							</p>
 						</td>

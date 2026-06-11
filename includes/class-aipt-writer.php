@@ -46,8 +46,11 @@ class AIPT_Writer {
 	 * @return int|WP_Error Translation post ID.
 	 */
 	private static function write_translation(array $job, WP_Post $source, string $target, int $existing) {
-		$results = $job['results'];
-		$tree    = $job['tree'];
+		$results      = $job['results'];
+		$tree         = $job['tree'];
+		$safe         = $existing && ($job['mode'] ?? '') === 'safe';
+		$target_post  = $safe ? get_post($existing) : null;
+		$preserve_map = self::preserve_map((array) ($job['preserve'] ?? array()));
 
 		$title          = $source->post_title;
 		$excerpt        = $source->post_excerpt;
@@ -96,6 +99,27 @@ class AIPT_Writer {
 
 		ksort($content_chunks);
 		$content = $content_chunks ? implode('', $content_chunks) : $source->post_content;
+
+		if ($target_post) {
+			$title = self::preserved_value(
+				array('post', 'title'),
+				$target_post->post_title,
+				$title,
+				$preserve_map
+			);
+			$excerpt = self::preserved_value(
+				array('post', 'excerpt'),
+				$target_post->post_excerpt,
+				$excerpt,
+				$preserve_map
+			);
+			$content = self::preserved_value(
+				array('post', 'content'),
+				$target_post->post_content,
+				$content,
+				$preserve_map
+			);
+		}
 
 		if ($existing) {
 			$postarr = array(
@@ -146,15 +170,25 @@ class AIPT_Writer {
 			);
 		}
 
-		$template = get_post_meta($source->ID, '_wp_page_template', true);
-		if ($template) {
+		$template         = get_post_meta($source->ID, '_wp_page_template', true);
+		$current_template = $safe ? get_post_meta($new_id, '_wp_page_template', true) : '';
+		if ($template && (!$safe || !AIPT_Safe_Merge::has_value($current_template))) {
 			update_post_meta($new_id, '_wp_page_template', $template);
 		}
-		$thumb_id = get_post_thumbnail_id($source->ID);
-		if ($thumb_id) {
+		$thumb_id         = get_post_thumbnail_id($source->ID);
+		$current_thumb_id = $safe ? get_post_thumbnail_id($new_id) : 0;
+		if ($thumb_id && (!$safe || !$current_thumb_id)) {
 			set_post_thumbnail($new_id, $thumb_id);
 		}
 		foreach ($meta as $meta_key => $meta_value) {
+			if ($safe) {
+				$meta_value = self::preserved_value(
+					array('meta', $meta_key),
+					get_post_meta($new_id, $meta_key, true),
+					$meta_value,
+					$preserve_map
+				);
+			}
 			if ($meta_value === '') {
 				delete_post_meta($new_id, $meta_key);
 			} else {
@@ -163,12 +197,37 @@ class AIPT_Writer {
 		}
 
 		if (aipt_acf_active()) {
+			if ($safe) {
+				$fields          = get_field_objects($source->ID, false);
+				$target_tree     = self::get_acf_tree($new_id);
+				$overwrite_paths = (array) ($job['overwrite'] ?? array());
+				if (is_array($fields)) {
+					$current_overwrite = AIPT_Safe_Merge::collect_overwrite_paths(
+						array_values($fields),
+						$tree,
+						$target_tree
+					);
+					$overwrite_paths = self::unique_paths(array_merge($overwrite_paths, $current_overwrite));
+					$tree = AIPT_Safe_Merge::merge_acf(
+						array_values($fields),
+						$tree,
+						$target_tree,
+						$overwrite_paths
+					);
+				}
+				$tree = self::restore_preserved_acf(
+					$tree,
+					$target_tree,
+					(array) ($job['preserve'] ?? array()),
+					$overwrite_paths
+				);
+			}
 			foreach ($tree as $field_key => $value) {
 				update_field($field_key, $value, $new_id);
 			}
 		}
 
-		self::copy_taxonomies($source, $new_id, $target);
+		self::copy_taxonomies($source, $new_id, $target, $safe);
 
 		$translations = pll_get_post_translations($source->ID);
 		$source_lang  = pll_get_post_language($source->ID);
@@ -181,11 +240,17 @@ class AIPT_Writer {
 		return $new_id;
 	}
 
-	private static function copy_taxonomies(WP_Post $source, int $new_id, string $target): void {
+	private static function copy_taxonomies(WP_Post $source, int $new_id, string $target, bool $safe): void {
 		foreach (get_object_taxonomies($source->post_type) as $taxonomy) {
 			// Polylang service taxonomies must never be copied.
 			if (in_array($taxonomy, array('language', 'post_translations', 'term_language', 'term_translations'), true)) {
 				continue;
+			}
+			if ($safe) {
+				$current_terms = wp_get_object_terms($new_id, $taxonomy, array('fields' => 'ids'));
+				if (!is_wp_error($current_terms) && $current_terms) {
+					continue;
+				}
 			}
 			$terms = wp_get_object_terms($source->ID, $taxonomy, array('fields' => 'ids'));
 			if (is_wp_error($terms)) {
@@ -204,6 +269,77 @@ class AIPT_Writer {
 				wp_set_object_terms($new_id, array_map('intval', $terms), $taxonomy);
 			}
 		}
+	}
+
+	private static function preserve_map(array $entries): array {
+		$map = array();
+		foreach ($entries as $entry) {
+			if (!is_array($entry)
+				|| !isset($entry['path'])
+				|| !is_array($entry['path'])
+				|| !array_key_exists('value', $entry)) {
+				continue;
+			}
+			$map[wp_json_encode($entry['path'])] = $entry['value'];
+		}
+		return $map;
+	}
+
+	private static function preserved_value(array $path, $current, $fallback, array $preserve_map) {
+		if (AIPT_Safe_Merge::has_value($current)) {
+			return $current;
+		}
+		$key = wp_json_encode($path);
+		return array_key_exists($key, $preserve_map) ? $preserve_map[$key] : $fallback;
+	}
+
+	private static function get_acf_tree(int $post_id): array {
+		$tree   = array();
+		$fields = get_field_objects($post_id, false);
+		if (!is_array($fields)) {
+			return $tree;
+		}
+		foreach ($fields as $field) {
+			if (!empty($field['key'])) {
+				$tree[$field['key']] = $field['value'];
+			}
+		}
+		return $tree;
+	}
+
+	private static function unique_paths(array $paths): array {
+		$unique = array();
+		foreach ($paths as $path) {
+			if (is_array($path)) {
+				$unique[wp_json_encode($path)] = $path;
+			}
+		}
+		return array_values($unique);
+	}
+
+	private static function restore_preserved_acf(
+		array $tree,
+		array $target_tree,
+		array $preserve,
+		array $overwrite_paths
+	): array {
+		foreach ($preserve as $entry) {
+			if (!is_array($entry)) {
+				continue;
+			}
+			$path = $entry['path'] ?? array();
+			if (($path[0] ?? '') !== 'acf' || !array_key_exists('value', $entry)) {
+				continue;
+			}
+			if (AIPT_Safe_Merge::is_overwritten($path, $overwrite_paths)) {
+				continue;
+			}
+			$acf_path = array_slice($path, 1);
+			$current  = self::get_path($target_tree, $acf_path);
+			$value    = AIPT_Safe_Merge::has_value($current) ? $current : $entry['value'];
+			self::set_path($tree, $acf_path, $value);
+		}
+		return $tree;
 	}
 
 	private static function remap_ids($value, string $kind, string $target, int $source_id, int $new_id) {

@@ -89,9 +89,16 @@ class AIPT_Metabox {
 				if ($edit_link) {
 					echo '<a href="' . esc_url($edit_link) . '">' . esc_html__('Открыть перевод', 'ai-polylang-translator') . '</a> ';
 				}
-				echo '<button type="button" class="button aipt-translate">' . esc_html__('Перевести заново', 'ai-polylang-translator') . '</button>';
+				echo '<button type="button" class="button button-primary aipt-translate" data-mode="safe" title="'
+					. esc_attr__('Заполненные поля сохраняются; несовпавшие repeater и flexible content заменяются целиком.', 'ai-polylang-translator')
+					. '">'
+					. esc_html__('Безопасный перевод', 'ai-polylang-translator')
+					. '</button>';
+				echo '<button type="button" class="button aipt-translate" data-mode="overwrite">'
+					. esc_html__('Перевести заново', 'ai-polylang-translator')
+					. '</button>';
 			} else {
-				echo '<button type="button" class="button button-primary aipt-translate">'
+				echo '<button type="button" class="button button-primary aipt-translate" data-mode="overwrite">'
 					. esc_html(sprintf(/* translators: %s: language name */ __('Перевести на %s', 'ai-polylang-translator'), $language->name))
 					. '</button>';
 			}
@@ -143,8 +150,12 @@ class AIPT_Metabox {
 			wp_send_json_error(array('message' => __('API-ключ не задан.', 'ai-polylang-translator')));
 		}
 
-		$target      = sanitize_key($_POST['target'] ?? '');
+		$target      = sanitize_key(wp_unslash($_POST['target'] ?? ''));
+		$mode        = sanitize_key(wp_unslash($_POST['mode'] ?? 'overwrite'));
 		$source_lang = pll_get_post_language($post_id);
+		if ($mode !== 'safe') {
+			$mode = 'overwrite';
+		}
 
 		if (!$source_lang) {
 			wp_send_json_error(array('message' => __('У записи не задан язык Polylang.', 'ai-polylang-translator')));
@@ -160,15 +171,18 @@ class AIPT_Metabox {
 		if (!$existing && !$this->can_create_translation($post)) {
 			wp_send_json_error(array('message' => __('Недостаточно прав для создания перевода.', 'ai-polylang-translator')));
 		}
-		if ($existing && empty($_POST['confirm'])) {
+		if (!$existing) {
+			$mode = 'overwrite';
+		}
+		if ($existing && $mode === 'overwrite' && empty($_POST['confirm'])) {
 			wp_send_json_error(array(
 				'code'    => 'needs_confirm',
 				'message' => __('Перевод уже существует — требуется подтверждение перезаписи.', 'ai-polylang-translator'),
 			));
 		}
 
-		$extract = AIPT_Extractor::extract($post_id);
-		if (!$extract['items']) {
+		$extract = AIPT_Extractor::extract($post_id, $existing, $mode === 'safe');
+		if (!$extract['items'] && $mode !== 'safe') {
 			wp_send_json_error(array('message' => __('В записи нет текста для перевода.', 'ai-polylang-translator')));
 		}
 
@@ -191,12 +205,15 @@ class AIPT_Metabox {
 			'post_id'     => $post_id,
 			'target'      => $target,
 			'existing'    => $existing,
+			'mode'        => $mode,
 			'source_name' => $source_name ?: $source_lang,
 			'target_name' => $target_name,
 			'items'       => $extract['items'],
 			'tree'        => $extract['tree'],
 			'remap'       => $extract['remap'],
 			'meta'        => $extract['meta'],
+			'preserve'    => $extract['preserve'],
+			'overwrite'   => $extract['overwrite'],
 			'batches'     => $batches,
 			'results'     => array(),
 			'status'      => 'translating',

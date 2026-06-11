@@ -115,16 +115,21 @@
 		next();
 	}
 
-	function start(row) {
+	function start(row, button) {
 		var existing = row.dataset.existing;
-		if (existing && !window.confirm(cfg.i18n.confirmOverwrite)) {
+		var mode = button.dataset.mode || 'overwrite';
+		if (existing && mode === 'overwrite' && !window.confirm(cfg.i18n.confirmOverwrite)) {
 			return;
 		}
 
 		setBusy(true);
 		status(row, cfg.i18n.preparing);
 
-		post('aipt_prepare', { target: row.dataset.lang, confirm: existing ? 1 : 0 }).then(function (response) {
+		post('aipt_prepare', {
+			target: row.dataset.lang,
+			mode: mode,
+			confirm: existing && mode === 'overwrite' ? 1 : 0
+		}).then(function (response) {
 			if (!response.success) {
 				showError(row, response.data && response.data.message, null);
 				return;
@@ -140,6 +145,6 @@
 		if (!button || button.disabled) {
 			return;
 		}
-		start(button.closest('.aipt-row'));
+		start(button.closest('.aipt-row'), button);
 	});
 })();

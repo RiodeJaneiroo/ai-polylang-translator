@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Polylang Translator
  * Description: AI-перевод записей и ACF-полей на другие языки Polylang через Vercel AI Gateway.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Vadym Zm
  * Author URI: https://artzm.dev/
  * Text Domain: ai-polylang-translator
@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
-define('AIPT_VERSION', '1.0.0');
+define('AIPT_VERSION', '1.1.0');
 define('AIPT_FILE', __FILE__);
 define('AIPT_DIR', plugin_dir_path(__FILE__));
 define('AIPT_URL', plugin_dir_url(__FILE__));
@@ -48,6 +48,7 @@ add_action('plugins_loaded', function () {
 
 	require_once AIPT_DIR . 'includes/class-aipt-settings.php';
 	require_once AIPT_DIR . 'includes/class-aipt-acf-schema.php';
+	require_once AIPT_DIR . 'includes/class-aipt-safe-merge.php';
 	require_once AIPT_DIR . 'includes/class-aipt-gateway.php';
 	require_once AIPT_DIR . 'includes/class-aipt-extractor.php';
 	require_once AIPT_DIR . 'includes/class-aipt-job.php';

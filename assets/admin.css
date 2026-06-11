@@ -16,6 +16,10 @@
 	margin-right: 6px;
 }
 
+.aipt-row .aipt-actions .button {
+	margin: 0 4px 4px 0;
+}
+
 .aipt-status {
 	margin-top: 6px;
 	font-size: 12px;

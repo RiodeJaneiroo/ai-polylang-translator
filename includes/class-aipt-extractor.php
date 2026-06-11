@@ -19,25 +19,33 @@ class AIPT_Extractor {
 	const YOAST_KEYS = array('_yoast_wpseo_title', '_yoast_wpseo_metadesc', '_yoast_wpseo_focuskw');
 
 	/**
-	 * @return array{items: array, tree: array, remap: array, meta: array}
+	 * @return array{items: array, tree: array, remap: array, meta: array, preserve: array, overwrite: array}
 	 */
-	public static function extract(int $post_id): array {
-		$post     = get_post($post_id);
-		$settings = AIPT_Settings::get();
+	public static function extract(int $post_id, int $target_id = 0, bool $safe = false): array {
+		$post        = get_post($post_id);
+		$target_post = $safe && $target_id ? get_post($target_id) : null;
+		$settings    = AIPT_Settings::get();
 
-		$items = array();
-		$add   = static function (array $path, string $text) use (&$items): void {
+		$items    = array();
+		$preserve = array();
+		$add      = static function (array $path, string $text) use (&$items): void {
 			$id          = 's' . count($items);
 			$items[$id] = array('id' => $id, 'path' => $path, 'text' => $text);
 		};
 
-		if (self::is_translatable($post->post_title)) {
+		$preserve_title = $target_post
+			&& self::preserve_value(array('post', 'title'), $target_post->post_title, array(), $preserve);
+		if (!$preserve_title && self::is_translatable($post->post_title)) {
 			$add(array('post', 'title'), $post->post_title);
 		}
-		if (self::is_translatable($post->post_excerpt)) {
+		$preserve_excerpt = $target_post
+			&& self::preserve_value(array('post', 'excerpt'), $target_post->post_excerpt, array(), $preserve);
+		if (!$preserve_excerpt && self::is_translatable($post->post_excerpt)) {
 			$add(array('post', 'excerpt'), $post->post_excerpt);
 		}
-		if (self::is_translatable($post->post_content)) {
+		$preserve_content = $target_post
+			&& self::preserve_value(array('post', 'content'), $target_post->post_content, array(), $preserve);
+		if (!$preserve_content && self::is_translatable($post->post_content)) {
 			foreach (self::chunk_html($post->post_content) as $i => $chunk) {
 				$add(array('post', 'content', $i), $chunk);
 			}
@@ -48,14 +56,20 @@ class AIPT_Extractor {
 			foreach (self::YOAST_KEYS as $meta_key) {
 				$value = (string) get_post_meta($post_id, $meta_key, true);
 				$meta[$meta_key] = $value;
+				$target_value = $target_post ? get_post_meta($target_id, $meta_key, true) : null;
+				if ($target_post && self::preserve_value(array('meta', $meta_key), $target_value, array(), $preserve)) {
+					continue;
+				}
 				if (self::is_translatable($value)) {
 					$add(array('meta', $meta_key), $value);
 				}
 			}
 		}
 
-		$tree  = array();
-		$remap = array();
+		$tree        = array();
+		$target_tree = array();
+		$remap       = array();
+		$overwrite   = array();
 		if (aipt_acf_active()) {
 			$fields = get_field_objects($post_id, false);
 			if (is_array($fields)) {
@@ -64,15 +78,62 @@ class AIPT_Extractor {
 						continue;
 					}
 					$tree[$field['key']] = $field['value'];
-					self::walk($field, $field['value'], array('acf', $field['key']), $settings['field_overrides'], $add, $remap);
+				}
+
+				if ($target_post) {
+					$target_fields = get_field_objects($target_id, false);
+					if (is_array($target_fields)) {
+						foreach ($target_fields as $target_field) {
+							if (!empty($target_field['key'])) {
+								$target_tree[$target_field['key']] = $target_field['value'];
+							}
+						}
+					}
+					$overwrite = AIPT_Safe_Merge::collect_overwrite_paths(array_values($fields), $tree, $target_tree);
+				}
+
+				foreach ($fields as $field) {
+					if (empty($field['key'])) {
+						continue;
+					}
+					self::walk(
+						$field,
+						$field['value'],
+						$target_tree[$field['key']] ?? null,
+						array('acf', $field['key']),
+						$settings['field_overrides'],
+						$add,
+						$remap,
+						$preserve,
+						$overwrite,
+						(bool) $target_post
+					);
 				}
 			}
 		}
 
-		return array('items' => $items, 'tree' => $tree, 'remap' => $remap, 'meta' => $meta);
+		return array(
+			'items'     => $items,
+			'tree'      => $tree,
+			'remap'     => $remap,
+			'meta'      => $meta,
+			'preserve'  => $preserve,
+			'overwrite' => $overwrite,
+		);
 	}
 
-	private static function walk(array $field, $value, array $path, array $overrides, callable $add, array &$remap): void {
+	private static function walk(
+		array $field,
+		$value,
+		$target_value,
+		array $path,
+		array $overrides,
+		callable $add,
+		array &$remap,
+		array &$preserve,
+		array $overwrite,
+		bool $safe
+	): void {
 		$type = $field['type'] ?? '';
 
 		if (in_array($type, array('repeater', 'group', 'flexible_content', 'clone'), true)) {
@@ -87,7 +148,21 @@ class AIPT_Extractor {
 					}
 					foreach ($field['sub_fields'] ?? array() as $sub) {
 						if (array_key_exists($sub['key'], $row)) {
-							self::walk($sub, $row[$sub['key']], array_merge($path, array($i, $sub['key'])), $overrides, $add, $remap);
+							$target_row = is_array($target_value) && isset($target_value[$i]) && is_array($target_value[$i])
+								? $target_value[$i]
+								: array();
+							self::walk(
+								$sub,
+								$row[$sub['key']],
+								$target_row[$sub['key']] ?? null,
+								array_merge($path, array($i, $sub['key'])),
+								$overrides,
+								$add,
+								$remap,
+								$preserve,
+								$overwrite,
+								$safe
+							);
 						}
 					}
 				}
@@ -103,17 +178,46 @@ class AIPT_Extractor {
 					$layout_name = (string) ($row['acf_fc_layout'] ?? '');
 					foreach ($layouts[$layout_name] ?? array() as $sub) {
 						if (array_key_exists($sub['key'], $row)) {
-							self::walk($sub, $row[$sub['key']], array_merge($path, array($i, $sub['key'])), $overrides, $add, $remap);
+							$target_row = is_array($target_value) && isset($target_value[$i]) && is_array($target_value[$i])
+								? $target_value[$i]
+								: array();
+							self::walk(
+								$sub,
+								$row[$sub['key']],
+								$target_row[$sub['key']] ?? null,
+								array_merge($path, array($i, $sub['key'])),
+								$overrides,
+								$add,
+								$remap,
+								$preserve,
+								$overwrite,
+								$safe
+							);
 						}
 					}
 				}
 			} else { // group, clone
 				foreach ($field['sub_fields'] ?? array() as $sub) {
 					if (array_key_exists($sub['key'], $value)) {
-						self::walk($sub, $value[$sub['key']], array_merge($path, array($sub['key'])), $overrides, $add, $remap);
+						self::walk(
+							$sub,
+							$value[$sub['key']],
+							is_array($target_value) ? ($target_value[$sub['key']] ?? null) : null,
+							array_merge($path, array($sub['key'])),
+							$overrides,
+							$add,
+							$remap,
+							$preserve,
+							$overwrite,
+							$safe
+						);
 					}
 				}
 			}
+			return;
+		}
+
+		if ($safe && self::preserve_value($path, $target_value, $overwrite, $preserve)) {
 			return;
 		}
 
@@ -135,6 +239,14 @@ class AIPT_Extractor {
 		} elseif ($type === 'taxonomy' && !empty($value)) {
 			$remap[] = array('path' => $path, 'kind' => 'term');
 		}
+	}
+
+	private static function preserve_value(array $path, $value, array $overwrite, array &$preserve): bool {
+		if (AIPT_Safe_Merge::is_overwritten($path, $overwrite) || !AIPT_Safe_Merge::has_value($value)) {
+			return false;
+		}
+		$preserve[] = array('path' => $path, 'value' => $value);
+		return true;
 	}
 
 	public static function is_translatable($value): bool {

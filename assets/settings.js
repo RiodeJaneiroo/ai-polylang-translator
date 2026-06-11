@@ -11,6 +11,7 @@
 	button.addEventListener('click', function () {
 		var result = document.getElementById('aipt-test-result');
 		var keyInput = document.getElementById('aipt-api-key');
+		var savedIcon = document.getElementById('aipt-key-saved');
 
 		result.textContent = cfg.i18n.testing;
 		result.className = '';
@@ -27,6 +28,9 @@
 				if (response.success) {
 					result.textContent = cfg.i18n.ok;
 					result.className = 'aipt-ok';
+					if (savedIcon) {
+						savedIcon.hidden = false;
+					}
 				} else {
 					result.textContent = (response.data && response.data.message) || 'Error';
 					result.className = 'aipt-error';

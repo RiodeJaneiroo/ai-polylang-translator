@@ -16,6 +16,11 @@
 	margin-right: 6px;
 }
 
+.aipt-safe-option {
+	display: block;
+	margin: 5px 0 7px;
+}
+
 .aipt-row .aipt-actions .button {
 	margin: 0 4px 4px 0;
 }
@@ -35,6 +40,12 @@
 
 #aipt-test-result {
 	margin-left: 8px;
+}
+
+.aipt-key-saved {
+	margin: 4px 5px 0 2px;
+	color: #00a32a;
+	vertical-align: top;
 }
 
 .aipt-advanced summary {

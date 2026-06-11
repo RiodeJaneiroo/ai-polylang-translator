@@ -29,8 +29,8 @@
 	}
 
 	function setBusy(busy) {
-		document.querySelectorAll('#aipt_metabox .aipt-translate').forEach(function (button) {
-			button.disabled = busy;
+		document.querySelectorAll('#aipt_metabox .aipt-translate, #aipt_metabox .aipt-safe-mode').forEach(function (control) {
+			control.disabled = busy;
 		});
 	}
 
@@ -115,9 +115,10 @@
 		next();
 	}
 
-	function start(row, button) {
+	function start(row) {
 		var existing = row.dataset.existing;
-		var mode = button.dataset.mode || 'overwrite';
+		var safeMode = row.querySelector('.aipt-safe-mode');
+		var mode = existing && safeMode && safeMode.checked ? 'safe' : 'overwrite';
 		if (existing && mode === 'overwrite' && !window.confirm(cfg.i18n.confirmOverwrite)) {
 			return;
 		}
@@ -145,6 +146,6 @@
 		if (!button || button.disabled) {
 			return;
 		}
-		start(button.closest('.aipt-row'), button);
+		start(button.closest('.aipt-row'));
 	});
 })();

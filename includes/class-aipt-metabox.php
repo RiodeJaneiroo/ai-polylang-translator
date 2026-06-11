@@ -89,16 +89,16 @@ class AIPT_Metabox {
 				if ($edit_link) {
 					echo '<a href="' . esc_url($edit_link) . '">' . esc_html__('Открыть перевод', 'ai-polylang-translator') . '</a> ';
 				}
-				echo '<button type="button" class="button button-primary aipt-translate" data-mode="safe" title="'
+				echo '<label class="aipt-safe-option" title="'
 					. esc_attr__('Заполненные поля сохраняются; несовпавшие repeater и flexible content заменяются целиком.', 'ai-polylang-translator')
-					. '">'
+					. '"><input type="checkbox" class="aipt-safe-mode" value="1" checked> '
 					. esc_html__('Безопасный перевод', 'ai-polylang-translator')
-					. '</button>';
-				echo '<button type="button" class="button aipt-translate" data-mode="overwrite">'
-					. esc_html__('Перевести заново', 'ai-polylang-translator')
+					. '</label>';
+				echo '<button type="button" class="button button-primary aipt-translate">'
+					. esc_html__('Обновить перевод', 'ai-polylang-translator')
 					. '</button>';
 			} else {
-				echo '<button type="button" class="button button-primary aipt-translate" data-mode="overwrite">'
+				echo '<button type="button" class="button button-primary aipt-translate">'
 					. esc_html(sprintf(/* translators: %s: language name */ __('Перевести на %s', 'ai-polylang-translator'), $language->name))
 					. '</button>';
 			}

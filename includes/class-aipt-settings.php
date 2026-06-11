@@ -138,7 +138,7 @@ class AIPT_Settings {
 			'nonce'   => wp_create_nonce('aipt_test_key'),
 			'i18n'    => array(
 				'testing' => __('Проверяю…', 'ai-polylang-translator'),
-				'ok'      => __('✓ Ключ работает и сохранён', 'ai-polylang-translator'),
+				'ok'      => __('Ключ работает и сохранён', 'ai-polylang-translator'),
 			),
 		));
 	}
@@ -182,6 +182,10 @@ class AIPT_Settings {
 						<td>
 							<input type="password" id="aipt-api-key" name="aipt_api_key" value="" class="regular-text" autocomplete="new-password"
 								placeholder="<?php echo esc_attr($key !== '' ? self::mask_key($key) : __('Вставьте ключ', 'ai-polylang-translator')); ?>">
+							<span id="aipt-key-saved" class="dashicons dashicons-yes-alt aipt-key-saved"
+								title="<?php esc_attr_e('Ключ сохранён', 'ai-polylang-translator'); ?>"
+								aria-label="<?php esc_attr_e('Ключ сохранён', 'ai-polylang-translator'); ?>"
+								<?php echo $key === '' ? 'hidden' : ''; ?>></span>
 							<button type="button" class="button" id="aipt-test-key"><?php esc_html_e('Проверить ключ', 'ai-polylang-translator'); ?></button>
 							<span id="aipt-test-result"></span>
 							<p class="description">

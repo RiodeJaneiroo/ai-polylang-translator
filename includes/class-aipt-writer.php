@@ -18,10 +18,17 @@ class AIPT_Writer {
 			return new WP_Error('aipt_no_source', __('Исходная запись не найдена.', 'ai-polylang-translator'));
 		}
 
-		$target   = (string) $job['target'];
-		$existing = (int) ($job['existing'] ?? 0);
-		if (!$existing || !get_post($existing)) {
-			$existing = (int) (pll_get_post($source->ID, $target) ?: 0);
+		$target          = (string) $job['target'];
+		$prepared        = (int) ($job['existing'] ?? 0);
+		$existing        = $prepared;
+		// Re-check the target the user actually confirmed at prepare time. Never silently
+		// overwrite a post that the confirmation screen never showed.
+		if (!$prepared) {
+			if ((int) (pll_get_post($source->ID, $target) ?: 0)) {
+				return new WP_Error('aipt_target_changed', __('Перевод на этот язык появился уже после подготовки. Начните перевод заново.', 'ai-polylang-translator'));
+			}
+		} elseif (!get_post($prepared)) {
+			return new WP_Error('aipt_target_changed', __('Подготовленный перевод был удалён. Начните перевод заново.', 'ai-polylang-translator'));
 		}
 
 		if ($existing && !current_user_can('edit_post', $existing)) {
@@ -48,6 +55,14 @@ class AIPT_Writer {
 	private static function write_translation(array $job, WP_Post $source, string $target, int $existing) {
 		$results      = $job['results'];
 		$tree         = $job['tree'];
+		// post_content goes through wp_filter_post_kses on wp_update_post/wp_insert_post
+		// for users without unfiltered_html, but ACF and meta writes do not — sanitize
+		// model output ourselves unless the user may post raw HTML. Apply this only to
+		// strings that actually came back from the model (the translated $text below),
+		// never to values copied verbatim from the source tree/meta — running wp_kses_post
+		// over untouched copies entity-encodes URL query strings (a&b → a&amp;b) and can
+		// strip markup the source author saved with unfiltered_html.
+		$kses         = !current_user_can('unfiltered_html');
 		$safe         = $existing && ($job['mode'] ?? '') === 'safe';
 		$target_post  = $safe ? get_post($existing) : null;
 		$preserve_map = self::preserve_map((array) ($job['preserve'] ?? array()));
@@ -63,6 +78,9 @@ class AIPT_Writer {
 				return new WP_Error('aipt_incomplete', __('Перевод не завершён — отсутствуют части текста.', 'ai-polylang-translator'));
 			}
 			$text = (string) $results[$id];
+			if ($kses) {
+				$text = self::sanitize_translated($text);
+			}
 			$path = $item['path'];
 
 			switch ($path[0]) {
@@ -293,6 +311,19 @@ class AIPT_Writer {
 		return array_key_exists($key, $preserve_map) ? $preserve_map[$key] : $fallback;
 	}
 
+	/**
+	 * Run a single translated string through wp_kses_post before it lands in the tree/meta,
+	 * mirroring the filtering wp_update_post applies to post_content for users without
+	 * unfiltered_html. Applied only to model output at substitution time, never to values
+	 * copied verbatim from the source.
+	 */
+	private static function sanitize_translated($value) {
+		if (is_array($value)) {
+			return array_map(array(__CLASS__, 'sanitize_translated'), $value);
+		}
+		return is_string($value) ? wp_kses_post($value) : $value;
+	}
+
 	private static function get_acf_tree(int $post_id): array {
 		$tree   = array();
 		$fields = get_field_objects($post_id, false);
@@ -367,24 +398,29 @@ class AIPT_Writer {
 			return $state;
 		}
 
-		$sync = $polylang->sync;
-		if (has_action('pll_save_post', array($sync, 'pll_save_post')) !== false) {
-			remove_action('pll_save_post', array($sync, 'pll_save_post'), 10);
-			$state['post'] = $sync;
+		$sync     = $polylang->sync;
+		$priority = has_action('pll_save_post', array($sync, 'pll_save_post'));
+		if ($priority !== false) {
+			remove_action('pll_save_post', array($sync, 'pll_save_post'), $priority);
+			$state['post']          = $sync;
+			$state['post_priority'] = $priority;
 		}
 
 		if (!empty($sync->post_metas) && is_object($sync->post_metas)) {
 			$post_metas = $sync->post_metas;
 			foreach (array('add', 'update', 'delete') as $operation) {
-				$hook = $operation . '_post_metadata';
-				if (has_filter($hook, array($post_metas, 'can_synchronize_metadata')) !== false) {
-					remove_filter($hook, array($post_metas, 'can_synchronize_metadata'), 1);
-					$state['post_meta_guards'][$hook] = $post_metas;
+				$hook     = $operation . '_post_metadata';
+				$priority = has_filter($hook, array($post_metas, 'can_synchronize_metadata'));
+				if ($priority !== false) {
+					remove_filter($hook, array($post_metas, 'can_synchronize_metadata'), $priority);
+					$state['post_meta_guards'][$hook] = array($post_metas, $priority);
 				}
 			}
-			if (has_action('pll_save_post', array($post_metas, 'save_object')) !== false) {
-				remove_action('pll_save_post', array($post_metas, 'save_object'), 10);
-				$state['post_metas_save'] = $post_metas;
+			$priority = has_action('pll_save_post', array($post_metas, 'save_object'));
+			if ($priority !== false) {
+				remove_action('pll_save_post', array($post_metas, 'save_object'), $priority);
+				$state['post_metas_save']          = $post_metas;
+				$state['post_metas_save_priority'] = $priority;
 			}
 			if (has_action('added_post_meta', array($post_metas, 'add_meta')) !== false
 				&& is_callable(array($post_metas, 'remove_all_meta_actions'))) {
@@ -393,10 +429,13 @@ class AIPT_Writer {
 			}
 		}
 
-		if (!empty($sync->taxonomies) && is_object($sync->taxonomies)
-			&& has_action('set_object_terms', array($sync->taxonomies, 'set_object_terms')) !== false) {
-			remove_action('set_object_terms', array($sync->taxonomies, 'set_object_terms'), 10);
-			$state['taxonomies'] = $sync->taxonomies;
+		if (!empty($sync->taxonomies) && is_object($sync->taxonomies)) {
+			$priority = has_action('set_object_terms', array($sync->taxonomies, 'set_object_terms'));
+			if ($priority !== false) {
+				remove_action('set_object_terms', array($sync->taxonomies, 'set_object_terms'), $priority);
+				$state['taxonomies']          = $sync->taxonomies;
+				$state['taxonomies_priority'] = $priority;
+			}
 		}
 
 		return $state;
@@ -404,19 +443,20 @@ class AIPT_Writer {
 
 	private static function restore_polylang_sync(array $state): void {
 		if (isset($state['post'])) {
-			add_action('pll_save_post', array($state['post'], 'pll_save_post'), 10, 3);
+			add_action('pll_save_post', array($state['post'], 'pll_save_post'), $state['post_priority'], 3);
 		}
 		if (isset($state['post_metas_save'])) {
-			add_action('pll_save_post', array($state['post_metas_save'], 'save_object'), 10, 3);
+			add_action('pll_save_post', array($state['post_metas_save'], 'save_object'), $state['post_metas_save_priority'], 3);
 		}
 		if (isset($state['post_metas']) && is_callable(array($state['post_metas'], 'add_all_meta_actions'))) {
 			$state['post_metas']->add_all_meta_actions();
 		}
-		foreach ($state['post_meta_guards'] ?? array() as $hook => $post_metas) {
-			add_filter($hook, array($post_metas, 'can_synchronize_metadata'), 1, 3);
+		foreach ($state['post_meta_guards'] ?? array() as $hook => $guard) {
+			list($post_metas, $priority) = $guard;
+			add_filter($hook, array($post_metas, 'can_synchronize_metadata'), $priority, 3);
 		}
 		if (isset($state['taxonomies'])) {
-			add_action('set_object_terms', array($state['taxonomies'], 'set_object_terms'), 10, 5);
+			add_action('set_object_terms', array($state['taxonomies'], 'set_object_terms'), $state['taxonomies_priority'], 5);
 		}
 	}
 

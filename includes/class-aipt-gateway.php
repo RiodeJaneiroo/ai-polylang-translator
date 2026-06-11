@@ -37,22 +37,42 @@ class AIPT_Gateway {
 		);
 
 		$result = self::attempt($messages, $map);
+		if (is_wp_error($result)) {
+			return $result;
+		}
 
-		// One automatic retry on an invalid JSON reply.
-		if (is_wp_error($result) && $result->get_error_code() === 'aipt_bad_json') {
-			$raw        = (string) ($result->get_error_data()['raw'] ?? '');
-			$messages[] = array('role' => 'assistant', 'content' => $raw !== '' ? $raw : '{}');
-			$messages[] = array(
-				'role'    => 'user',
-				'content' => 'Предыдущий ответ был невалидным. Верни строго валидный JSON-объект со ВСЕМИ исходными ключами и непустыми строковыми значениями, без пояснений и без markdown.',
+		// Keep the valid translations; retry only the missing keys in a fresh short conversation.
+		$missing = array_diff_key($map, $result);
+		if ($missing) {
+			$retry_messages = array(
+				array('role' => 'system', 'content' => $system),
+				array('role' => 'user', 'content' => wp_json_encode($missing, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)),
 			);
-			$result = self::attempt($messages, $map);
+			$retry = self::attempt($retry_messages, $missing);
+			if (is_wp_error($retry)) {
+				return $retry;
+			}
+			$result += $retry;
+		}
+
+		$missing = array_diff_key($map, $result);
+		if ($missing) {
+			return new WP_Error(
+				'aipt_bad_json',
+				sprintf(
+					/* translators: %d: number of keys the model failed to translate */
+					__('Не удалось перевести %d из элементов блока.', 'ai-polylang-translator'),
+					count($missing)
+				)
+			);
 		}
 
 		return $result;
 	}
 
 	/**
+	 * Collect the valid translations present in the reply; missing/empty keys are simply skipped.
+	 *
 	 * @return array|WP_Error
 	 */
 	private static function attempt(array $messages, array $map) {
@@ -69,14 +89,9 @@ class AIPT_Gateway {
 		$out = array();
 		foreach ($map as $key => $source_text) {
 			$translated = $decoded[$key] ?? null;
-			if (!is_string($translated) || trim($translated) === '') {
-				return new WP_Error(
-					'aipt_bad_json',
-					sprintf(__('В ответе модели нет перевода для ключа «%s».', 'ai-polylang-translator'), $key),
-					array('raw' => $content)
-				);
+			if (is_string($translated) && trim($translated) !== '') {
+				$out[$key] = $translated;
 			}
-			$out[$key] = $translated;
 		}
 		return $out;
 	}
@@ -107,15 +122,14 @@ class AIPT_Gateway {
 			);
 		}
 		if ($overrides['json_mode'] ?? true) {
-			$body['response_format'] = array('type' => 'json');
+			$body['response_format'] = array('type' => 'json_object');
 		}
 
 		$response = self::post($body, $api_key, (int) $settings['timeout']);
 
-		// Some models reject response_format — retry without it.
+		// Some models reject response_format — retry once without it on any HTTP 400.
 		if (is_wp_error($response) && $response->get_error_code() === 'aipt_http_400'
-			&& isset($body['response_format'])
-			&& str_contains((string) $response->get_error_message(), 'response_format')) {
+			&& isset($body['response_format'])) {
 			unset($body['response_format']);
 			$response = self::post($body, $api_key, (int) $settings['timeout']);
 		}

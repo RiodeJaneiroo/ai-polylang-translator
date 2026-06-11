@@ -8,6 +8,89 @@ if (!defined('ABSPATH')) {
 
 class AIPT_ACF_Schema {
 
+	// Canonical ACF container types. Two structural families:
+	//   row containers  — value is a list of rows (repeater, flexible_content)
+	//   group containers — value is a single sub_fields set (group, clone)
+	const ROW_CONTAINERS   = array('repeater', 'flexible_content');
+	const GROUP_CONTAINERS = array('group', 'clone');
+
+	/**
+	 * A field that wraps nested sub-fields and must be recursed into rather than
+	 * translated as a scalar. Covers the four canonical ACF types plus any
+	 * third-party container that exposes a non-empty 'sub_fields'/'layouts' shape.
+	 */
+	public static function is_container(array $field): bool {
+		$type = $field['type'] ?? '';
+		if (in_array($type, self::ROW_CONTAINERS, true) || in_array($type, self::GROUP_CONTAINERS, true)) {
+			return true;
+		}
+		return !empty($field['sub_fields']) || !empty($field['layouts']);
+	}
+
+	/**
+	 * Row container: value is iterated as a list of rows. Canonical repeater and
+	 * flexible_content, plus generic types that carry 'layouts' (flexible-like) or
+	 * 'sub_fields' without being a known group/clone. Unknown sub_fields-only
+	 * containers map to repeater-style iteration — the safe choice, since it
+	 * recurses per row instead of leaving nested text on the source language.
+	 */
+	public static function is_row_container(array $field): bool {
+		$type = $field['type'] ?? '';
+		if (in_array($type, self::ROW_CONTAINERS, true)) {
+			return true;
+		}
+		if (in_array($type, self::GROUP_CONTAINERS, true)) {
+			return false;
+		}
+		return !empty($field['layouts']) || !empty($field['sub_fields']);
+	}
+
+	/**
+	 * Group container: a single sub_fields set with no rows (group, clone).
+	 * Generic sub_fields-only types are treated as row containers, so this only
+	 * matches the canonical group/clone types.
+	 */
+	public static function is_group_container(array $field): bool {
+		return in_array($field['type'] ?? '', self::GROUP_CONTAINERS, true);
+	}
+
+	/**
+	 * Row-shaped value: a non-empty list whose every element is an array (a row).
+	 * Group values are associative (key => value) and fail array_is_list(); a flat
+	 * list of scalars has non-array elements. Used to disambiguate non-canonical
+	 * containers whose field description alone cannot tell row from group apart.
+	 */
+	public static function is_row_value($value): bool {
+		if (!is_array($value) || $value === array() || !array_is_list($value)) {
+			return false;
+		}
+		foreach ($value as $row) {
+			if (!is_array($row)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Decide row-vs-group iteration for a container, consulting the value only for
+	 * non-canonical types. Canonical types decide by type alone (value ignored):
+	 * repeater/flexible_content are rows, group/clone are groups — unchanged.
+	 * A non-canonical container takes the row branch only when it carries 'layouts'
+	 * (flexible-like) or its value is row-shaped; otherwise the group branch, so a
+	 * group-shaped associative value is no longer misread as a list of rows.
+	 */
+	public static function is_row_container_value(array $field, $value): bool {
+		$type = $field['type'] ?? '';
+		if (in_array($type, self::ROW_CONTAINERS, true)) {
+			return true;
+		}
+		if (in_array($type, self::GROUP_CONTAINERS, true)) {
+			return false;
+		}
+		return !empty($field['layouts']) || self::is_row_value($value);
+	}
+
 	public static function default_action(array $field): string {
 		switch ($field['type'] ?? '') {
 			case 'text':
@@ -15,20 +98,17 @@ class AIPT_ACF_Schema {
 			case 'wysiwyg':
 				return 'translate';
 
-			case 'repeater':
-			case 'group':
-			case 'flexible_content':
-			case 'clone':
-				return 'recurse';
-
 			case 'message':
 			case 'tab':
 			case 'accordion':
 				return 'skip';
-
-			default:
-				return 'copy';
 		}
+
+		if (self::is_container($field)) {
+			return 'recurse';
+		}
+
+		return 'copy';
 	}
 
 	public static function action(array $field, array $overrides): string {

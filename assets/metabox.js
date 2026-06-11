@@ -20,11 +20,13 @@
 			.then(function (response) { return response.json(); });
 	}
 
-	function sprintf(template) {
-		var args = Array.prototype.slice.call(arguments, 1);
-		var i = 0;
-		return template.replace(/%\d\$d|%d|%s/g, function () {
-			return args[i++];
+	function sprintf(format) {
+		if (window.wp && wp.i18n && wp.i18n.sprintf) {
+			return wp.i18n.sprintf.apply(null, arguments);
+		}
+		var args = Array.prototype.slice.call(arguments, 1), i = 0;
+		return format.replace(/%(\d+)\$d|%d|%s/g, function (m, pos) {
+			return String(pos ? args[pos - 1] : args[i++]);
 		});
 	}
 
@@ -80,13 +82,17 @@
 				post('aipt_finalize', { job_id: jobId }).then(function (response) {
 					if (!response.success) {
 						showError(row, response.data && response.data.message, function () {
+							setBusy(true);
 							runBatches(row, jobId, total, total); // retry finalize only
 						});
 						return;
 					}
 					showDone(row, response.data.edit_link);
 				}).catch(function (error) {
-					showError(row, String(error), next);
+					showError(row, String(error), function () {
+						setBusy(true);
+						next();
+					});
 				});
 				return;
 			}
@@ -115,11 +121,11 @@
 		next();
 	}
 
-	function start(row) {
+	function start(row, forceConfirm) {
 		var existing = row.dataset.existing;
 		var safeMode = row.querySelector('.aipt-safe-mode');
 		var mode = existing && safeMode && safeMode.checked ? 'safe' : 'overwrite';
-		if (existing && mode === 'overwrite' && !window.confirm(cfg.i18n.confirmOverwrite)) {
+		if (!forceConfirm && existing && mode === 'overwrite' && !window.confirm(cfg.i18n.confirmOverwrite)) {
 			return;
 		}
 
@@ -129,9 +135,19 @@
 		post('aipt_prepare', {
 			target: row.dataset.lang,
 			mode: mode,
-			confirm: existing && mode === 'overwrite' ? 1 : 0
+			confirm: (existing && mode === 'overwrite') || forceConfirm ? 1 : 0
 		}).then(function (response) {
 			if (!response.success) {
+				if (response.data && response.data.code === 'needs_confirm') {
+					var msg = response.data.message || cfg.i18n.confirmOverwrite;
+					if (window.confirm(msg)) {
+						start(row, true);
+					} else {
+						setBusy(false);
+						status(row, '');
+					}
+					return;
+				}
 				showError(row, response.data && response.data.message, null);
 				return;
 			}

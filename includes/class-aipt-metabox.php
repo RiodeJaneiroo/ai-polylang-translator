@@ -34,7 +34,7 @@ class AIPT_Metabox {
 		$post_id = isset($_GET['post']) ? absint($_GET['post']) : 0;
 
 		wp_enqueue_style('aipt-admin', AIPT_URL . 'assets/admin.css', array(), AIPT_VERSION);
-		wp_enqueue_script('aipt-metabox', AIPT_URL . 'assets/metabox.js', array(), AIPT_VERSION, true);
+		wp_enqueue_script('aipt-metabox', AIPT_URL . 'assets/metabox.js', array('wp-i18n'), AIPT_VERSION, true);
 		wp_localize_script('aipt-metabox', 'aiptMetabox', array(
 			'ajaxUrl' => admin_url('admin-ajax.php'),
 			'postId'  => $post_id,
@@ -197,9 +197,12 @@ class AIPT_Metabox {
 
 		$batches = array();
 		foreach (AIPT_Extractor::build_batches($extract['items']) as $keys) {
-			$batches[] = array('keys' => $keys, 'status' => 'pending');
+			$batches[] = array('keys' => $keys);
 		}
 
+		// Immutable payload: written once here and never rewritten. Per-batch results
+		// live in their own transients so concurrent batch requests cannot clobber a
+		// shared blob (last-write-wins data loss).
 		$job_id = AIPT_Job::create(array(
 			'user_id'     => get_current_user_id(),
 			'post_id'     => $post_id,
@@ -215,9 +218,11 @@ class AIPT_Metabox {
 			'preserve'    => $extract['preserve'],
 			'overwrite'   => $extract['overwrite'],
 			'batches'     => $batches,
-			'results'     => array(),
-			'status'      => 'translating',
 		));
+
+		if ($job_id === '') {
+			wp_send_json_error(array('message' => __('Не удалось сохранить задачу перевода — слишком большой объём данных. Обратитесь к администратору.', 'ai-polylang-translator')));
+		}
 
 		wp_send_json_success(array('job_id' => $job_id, 'total' => count($batches)));
 	}
@@ -226,18 +231,15 @@ class AIPT_Metabox {
 		$post_id = $this->guard();
 		list($job_id, $job) = $this->load_job($post_id);
 
+		$total = count($job['batches']);
 		$index = absint($_POST['batch'] ?? 0);
 		if (!isset($job['batches'][$index])) {
 			wp_send_json_error(array('message' => __('Неизвестный блок перевода.', 'ai-polylang-translator')));
 		}
 
-		$done_count = static function (array $job): int {
-			return count(array_filter($job['batches'], static fn($b) => $b['status'] === 'done'));
-		};
-
 		// Idempotent: a finished batch is never re-translated.
-		if ($job['batches'][$index]['status'] === 'done') {
-			wp_send_json_success(array('done' => $done_count($job), 'total' => count($job['batches'])));
+		if (AIPT_Job::get_batch($job_id, $index) !== false) {
+			wp_send_json_success(array('done' => $index + 1, 'total' => $total));
 		}
 
 		if (function_exists('set_time_limit')) {
@@ -254,30 +256,29 @@ class AIPT_Metabox {
 		$result = AIPT_Gateway::translate_map($map, $job['source_name'], $job['target_name']);
 
 		if (is_wp_error($result)) {
-			$job['batches'][$index]['status'] = 'failed';
-			AIPT_Job::save($job_id, $job);
 			wp_send_json_error(array('message' => $result->get_error_message()));
 		}
 
-		$job['results']                   = array_merge($job['results'], $result);
-		$job['batches'][$index]['status'] = 'done';
-		AIPT_Job::save($job_id, $job);
+		if (!AIPT_Job::save_batch($job_id, $index, $result)) {
+			wp_send_json_error(array('message' => __('Не удалось сохранить результат перевода — слишком большой объём данных. Обратитесь к администратору.', 'ai-polylang-translator')));
+		}
 
-		wp_send_json_success(array('done' => $done_count($job), 'total' => count($job['batches'])));
+		wp_send_json_success(array('done' => $index + 1, 'total' => $total));
 	}
 
 	public function ajax_finalize(): void {
 		$post_id = $this->guard();
 		list($job_id, $job) = $this->load_job($post_id);
 
+		// A repeated finalize after a successful write returns the saved translation.
 		if (($job['status'] ?? '') === 'complete') {
 			$this->send_finalized_job($job);
 		}
 
-		foreach ($job['batches'] as $batch) {
-			if ($batch['status'] !== 'done') {
-				wp_send_json_error(array('message' => __('Не все блоки переведены — завершение невозможно.', 'ai-polylang-translator')));
-			}
+		$total   = count($job['batches']);
+		$results = AIPT_Job::get_batches($job_id, $total);
+		if ($results === null) {
+			wp_send_json_error(array('message' => __('Не все блоки переведены — завершение невозможно.', 'ai-polylang-translator')));
 		}
 
 		if (!AIPT_Job::acquire_finalize_lock($job_id)) {
@@ -289,19 +290,24 @@ class AIPT_Metabox {
 			$job = AIPT_Job::get($job_id);
 			if (!$this->job_belongs_to_request($job, $post_id)) {
 				$error = new WP_Error('aipt_job_expired', __('Задача перевода не найдена или устарела. Начните заново.', 'ai-polylang-translator'));
-			} elseif (($job['status'] ?? '') !== 'complete') {
-				$job['status'] = 'finalizing';
-				AIPT_Job::save($job_id, $job);
+			} elseif (($job['status'] ?? '') === 'complete') {
+				// Won by a concurrent finalize while we waited for the lock.
+				$error = null;
+			} else {
+				$job['results'] = $results;
 
 				$new_id = AIPT_Writer::write($job);
 				if (is_wp_error($new_id)) {
-					$job['status'] = 'translating';
-					AIPT_Job::save($job_id, $job);
+					// Leave the batch transients in place so the user can retry finalize.
 					$error = $new_id;
 				} else {
+					// Keep a small completion marker so a duplicate finalize returns the
+					// link; drop the per-batch result transients (the large blobs).
+					unset($job['results']);
 					$job['status']       = 'complete';
 					$job['finalized_id'] = (int) $new_id;
 					AIPT_Job::save($job_id, $job);
+					AIPT_Job::delete_batches($job_id, $total);
 				}
 			}
 		} finally {

@@ -72,9 +72,9 @@ class AIPT_Safe_Merge {
 	}
 
 	private static function collect_field_paths(array $field, $source, $target, array $path, array &$paths): void {
-		$type = (string) ($field['type'] ?? '');
-
-		if (in_array($type, array('repeater', 'flexible_content'), true)) {
+		$row_container = AIPT_ACF_Schema::is_row_container_value($field, $source)
+			|| AIPT_ACF_Schema::is_row_container_value($field, $target);
+		if ($row_container) {
 			$source_rows = is_array($source) ? array_values($source) : array();
 			$target_rows = is_array($target) ? array_values($target) : array();
 			if (!self::rows_match($field, $source_rows, $target_rows)) {
@@ -101,7 +101,7 @@ class AIPT_Safe_Merge {
 			return;
 		}
 
-		if (in_array($type, array('group', 'clone'), true)) {
+		if (AIPT_ACF_Schema::is_group_container($field) || !empty($field['sub_fields'])) {
 			$source = is_array($source) ? $source : array();
 			$target = is_array($target) ? $target : array();
 			foreach ($field['sub_fields'] ?? array() as $sub_field) {
@@ -159,8 +159,9 @@ class AIPT_Safe_Merge {
 			return $translated;
 		}
 
-		$type = (string) ($field['type'] ?? '');
-		if (in_array($type, array('repeater', 'flexible_content'), true)) {
+		$row_container = AIPT_ACF_Schema::is_row_container_value($field, $translated)
+			|| AIPT_ACF_Schema::is_row_container_value($field, $target);
+		if ($row_container) {
 			$translated_rows = is_array($translated) ? array_values($translated) : array();
 			$target_rows     = is_array($target) ? array_values($target) : array();
 			foreach ($translated_rows as $index => &$translated_row) {
@@ -195,7 +196,7 @@ class AIPT_Safe_Merge {
 			return $translated_rows;
 		}
 
-		if (in_array($type, array('group', 'clone'), true)) {
+		if (AIPT_ACF_Schema::is_group_container($field) || !empty($field['sub_fields'])) {
 			$translated = is_array($translated) ? $translated : array();
 			$target     = is_array($target) ? $target : array();
 			foreach ($field['sub_fields'] ?? array() as $sub_field) {

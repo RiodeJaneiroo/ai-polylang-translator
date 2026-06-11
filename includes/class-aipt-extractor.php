@@ -136,12 +136,12 @@ class AIPT_Extractor {
 	): void {
 		$type = $field['type'] ?? '';
 
-		if (in_array($type, array('repeater', 'group', 'flexible_content', 'clone'), true)) {
+		if (AIPT_ACF_Schema::is_container($field)) {
 			if (!is_array($value)) {
 				return;
 			}
 
-			if ($type === 'repeater') {
+			if (AIPT_ACF_Schema::is_row_container_value($field, $value) && empty($field['layouts'])) {
 				foreach ($value as $i => $row) {
 					if (!is_array($row)) {
 						continue;
@@ -166,7 +166,7 @@ class AIPT_Extractor {
 						}
 					}
 				}
-			} elseif ($type === 'flexible_content') {
+			} elseif (AIPT_ACF_Schema::is_row_container_value($field, $value)) {
 				$layouts = array();
 				foreach ($field['layouts'] ?? array() as $layout) {
 					$layouts[$layout['name']] = $layout['sub_fields'] ?? array();
@@ -321,6 +321,13 @@ class AIPT_Extractor {
 				if ($whitespace >= (int) (self::CHUNK_SIZE / 2)) {
 					$cut = $whitespace;
 				}
+			}
+
+			// Guarantee forward progress: on malformed UTF-8 the rewinds above can
+			// drive $cut to 0, which would emit an empty chunk and leave $piece
+			// unchanged (infinite loop). Fall back to a hard cut at the limit.
+			if ($cut <= 0) {
+				$cut = self::CHUNK_SIZE;
 			}
 
 			$chunks[] = substr($piece, 0, $cut);

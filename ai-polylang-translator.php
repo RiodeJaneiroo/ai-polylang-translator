@@ -3,7 +3,8 @@
  * Plugin Name: AI Polylang Translator
  * Description: AI-перевод записей и ACF-полей на другие языки Polylang через Vercel AI Gateway.
  * Version: 1.0.0
- * Author: Alpha
+ * Author: Vadym Zm
+ * Author URI: https://artzm.dev/
  * Text Domain: ai-polylang-translator
  * Requires at least: 6.0
  * Tested up to: 7.0

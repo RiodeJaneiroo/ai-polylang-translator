@@ -278,7 +278,7 @@ class AIPT_Settings {
 							<th scope="row"><label for="aipt-context"><?php esc_html_e('Site context for the translator', 'ai-polylang-translator'); ?></label></th>
 							<td>
 								<textarea id="aipt-context" name="aipt_settings[site_context]" rows="2" class="large-text"
-									placeholder="<?php esc_attr_e('E.g.: company website — professional tone, do not translate brand and product names', 'ai-polylang-translator'); ?>"><?php echo esc_textarea($settings['site_context']); ?></textarea>
+									placeholder="<?php esc_attr_e('E.g.: furniture online store — friendly tone, keep brand names untranslated', 'ai-polylang-translator'); ?>"><?php echo esc_textarea($settings['site_context']); ?></textarea>
 								<p class="description"><?php esc_html_e('Appended to the prompt — helps the model maintain topic and tone.', 'ai-polylang-translator'); ?></p>
 							</td>
 						</tr>

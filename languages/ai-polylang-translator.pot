@@ -159,7 +159,7 @@ msgid "Site context for the translator"
 msgstr ""
 
 #: includes/class-aipt-settings.php:240
-msgid "E.g.: company website — professional tone, do not translate brand and product names"
+msgid "E.g.: furniture online store — friendly tone, keep brand names untranslated"
 msgstr ""
 
 #: includes/class-aipt-settings.php:241

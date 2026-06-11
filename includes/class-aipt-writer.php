@@ -215,22 +215,27 @@ class AIPT_Writer {
 		}
 
 		if (aipt_acf_active()) {
+			$target_tree = array();
+			$flex_paths  = array();
 			if ($safe) {
 				$fields          = get_field_objects($source->ID, false);
 				$target_tree     = self::get_acf_tree($new_id);
 				$overwrite_paths = (array) ($job['overwrite'] ?? array());
+				$flex_paths      = (array) ($job['flex'] ?? array());
 				if (is_array($fields)) {
-					$current_overwrite = AIPT_Safe_Merge::collect_overwrite_paths(
+					$current = AIPT_Safe_Merge::collect_paths(
 						array_values($fields),
 						$tree,
 						$target_tree
 					);
-					$overwrite_paths = self::unique_paths(array_merge($overwrite_paths, $current_overwrite));
+					$overwrite_paths = self::unique_paths(array_merge($overwrite_paths, $current['overwrite']));
+					$flex_paths      = self::unique_paths(array_merge($flex_paths, $current['flex']));
 					$tree = AIPT_Safe_Merge::merge_acf(
 						array_values($fields),
 						$tree,
 						$target_tree,
-						$overwrite_paths
+						$overwrite_paths,
+						$flex_paths
 					);
 				}
 				$tree = self::restore_preserved_acf(
@@ -239,9 +244,25 @@ class AIPT_Writer {
 					(array) ($job['preserve'] ?? array()),
 					$overwrite_paths
 				);
+			} elseif ($existing) {
+				$target_tree = self::get_acf_tree($new_id);
 			}
+			$tree = self::apply_skipped_acf(
+				$tree,
+				$target_tree,
+				(array) ($job['skip'] ?? array()),
+				$flex_paths,
+				$existing > 0
+			);
 			foreach ($tree as $field_key => $value) {
 				update_field($field_key, $value, $new_id);
+			}
+			if (!$existing) {
+				foreach (self::top_level_skipped_fields((array) ($job['skip'] ?? array())) as $field_key) {
+					// An omitted field can expose a non-empty ACF default_value. Store
+					// an explicit empty value so "Don't touch" is empty on new posts.
+					update_field($field_key, '', $new_id);
+				}
 			}
 		}
 
@@ -371,6 +392,87 @@ class AIPT_Writer {
 			self::set_path($tree, $acf_path, $value);
 		}
 		return $tree;
+	}
+
+	private static function apply_skipped_acf(
+		array $tree,
+		array $target_tree,
+		array $skip,
+		array $flex_paths,
+		bool $existing_translation
+	): array {
+		foreach ($skip as $path) {
+			if (!is_array($path) || ($path[0] ?? '') !== 'acf' || count($path) < 2) {
+				continue;
+			}
+
+			$acf_path = array_slice($path, 1);
+			if (count($path) === 2) {
+				unset($tree[$acf_path[0]]);
+			} elseif ($existing_translation) {
+				$target_path  = self::aligned_target_path($acf_path, $tree, $target_tree, $flex_paths);
+				$target_value = $target_path === null ? '' : self::get_path($target_tree, $target_path);
+				self::set_path($tree, $acf_path, $target_value);
+			} else {
+				self::set_path($tree, $acf_path, '');
+			}
+		}
+		return $tree;
+	}
+
+	private static function top_level_skipped_fields(array $skip): array {
+		$fields = array();
+		foreach ($skip as $path) {
+			if (is_array($path) && count($path) === 2 && ($path[0] ?? '') === 'acf') {
+				$fields[(string) $path[1]] = true;
+			}
+		}
+		return array_keys($fields);
+	}
+
+	private static function aligned_target_path(array $source_path, array $tree, array $target_tree, array $flex_paths): ?array {
+		usort($flex_paths, static fn(array $a, array $b): int => count($a) <=> count($b));
+		$target_path = $source_path;
+
+		foreach ($flex_paths as $flex_path) {
+			if (!is_array($flex_path) || ($flex_path[0] ?? '') !== 'acf') {
+				continue;
+			}
+			$flex_path = array_slice($flex_path, 1);
+			$row_depth = count($flex_path);
+			if (count($source_path) <= $row_depth
+				|| array_slice($source_path, 0, $row_depth) !== $flex_path) {
+				continue;
+			}
+
+			$source_index = $source_path[$row_depth];
+			if (!is_int($source_index)) {
+				continue;
+			}
+
+			$source_rows = self::get_path($tree, $flex_path);
+			$target_rows = self::get_path($target_tree, array_slice($target_path, 0, $row_depth));
+			if (!is_array($source_rows) || !is_array($target_rows) || !isset($source_rows[$source_index])) {
+				return null;
+			}
+
+			$source_row = $source_rows[$source_index];
+			$layout     = is_array($source_row) ? (string) ($source_row['acf_fc_layout'] ?? '') : '';
+			if ($layout === '') {
+				return null;
+			}
+
+			$matches = AIPT_Safe_Merge::align_flexible_rows(
+				array_values($source_rows),
+				array_values($target_rows)
+			);
+			if (!isset($matches[$source_index])) {
+				return null;
+			}
+			$target_path[$row_depth] = $matches[$source_index];
+		}
+
+		return $target_path;
 	}
 
 	private static function remap_ids($value, string $kind, string $target, int $source_id, int $new_id) {

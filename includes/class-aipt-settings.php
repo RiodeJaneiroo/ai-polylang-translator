@@ -151,13 +151,15 @@ class AIPT_Settings {
 		$out['timeout']         = max(30, min(300, (int) ($value['timeout'] ?? 90)));
 
 		// Only deviations from the default policy are stored, so new ACF fields translate by default.
-		if (isset($value['acf_all']) && is_array($value['acf_all'])) {
-			$checked   = array_map('sanitize_text_field', (array) ($value['acf_translate'] ?? array()));
+		if (array_key_exists('acf_mode', $value)) {
 			$overrides = array();
-			foreach ($value['acf_all'] as $field_key) {
-				$field_key = sanitize_text_field($field_key);
-				if (!in_array($field_key, $checked, true)) {
-					$overrides[$field_key] = 'copy';
+			if (is_array($value['acf_mode'])) {
+				foreach ($value['acf_mode'] as $field_key => $mode) {
+					$field_key = sanitize_text_field((string) $field_key);
+					$mode      = is_string($mode) ? sanitize_key($mode) : '';
+					if ($field_key !== '' && in_array($mode, array('copy', 'skip'), true)) {
+						$overrides[$field_key] = $mode;
+					}
 				}
 			}
 			$out['field_overrides'] = $overrides;
@@ -301,7 +303,7 @@ class AIPT_Settings {
 							<tr>
 								<th scope="row"><?php esc_html_e('ACF fields to translate', 'ai-polylang-translator'); ?></th>
 								<td>
-									<p class="description"><?php esc_html_e('Checked text fields are translated; unchecked fields (images, numbers, relationships, etc.) are copied as-is. New fields are translated by default.', 'ai-polylang-translator'); ?></p>
+									<p class="description"><?php esc_html_e('Choose whether each text field is translated, copied as-is, or left untouched. Other field types (images, numbers, relationships, etc.) are copied as-is.', 'ai-polylang-translator'); ?></p>
 									<?php echo AIPT_ACF_Schema::render_tree_html($settings['field_overrides']); // phpcs:ignore WordPress.Security.EscapeOutput ?>
 								</td>
 							</tr>

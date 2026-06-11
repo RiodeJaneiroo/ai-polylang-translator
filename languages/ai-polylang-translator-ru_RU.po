@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: AI Polylang Translator 1.2.0\n"
+"Project-Id-Version: AI Polylang Translator 1.3.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-06-11 00:00+0000\n"
 "PO-Revision-Date: 2026-06-11 00:00+0000\n"
@@ -17,11 +17,23 @@ msgstr ""
 msgid "AI Polylang Translator requires the Polylang plugin to be active."
 msgstr "AI Polylang Translator: для работы плагина требуется активный Polylang."
 
-#: includes/class-aipt-acf-schema.php:180
+#: includes/class-aipt-acf-schema.php:181
 msgid "No ACF field groups found."
 msgstr "Группы полей ACF не найдены."
 
+#: includes/class-aipt-acf-schema.php:199
+msgid "Translate"
+msgstr "Перевести"
+
+#: includes/class-aipt-acf-schema.php:201
+msgid "Copy"
+msgstr "Копировать"
+
 #: includes/class-aipt-acf-schema.php:203
+msgid "Don't touch"
+msgstr "Не трогать"
+
+#: includes/class-aipt-acf-schema.php:213
 msgid "Copied without translation"
 msgstr "Копируется без перевода"
 
@@ -183,9 +195,9 @@ msgstr "Таймаут запроса, сек"
 msgid "ACF fields to translate"
 msgstr "Переводимые поля ACF"
 
-#: includes/class-aipt-settings.php:263
-msgid "Checked text fields are translated; unchecked fields (images, numbers, relationships, etc.) are copied as-is. New fields are translated by default."
-msgstr "Отмеченные текстовые поля переводятся, остальные (картинки, числа, связи и т.д.) копируются как есть. Новые поля переводятся по умолчанию."
+#: includes/class-aipt-settings.php:306
+msgid "Choose whether each text field is translated, copied as-is, or left untouched. Other field types (images, numbers, relationships, etc.) are copied as-is."
+msgstr "Выберите для каждого текстового поля: переводить, копировать как есть или не трогать. Остальные типы полей (изображения, числа, связи и т. д.) копируются как есть."
 
 #: includes/class-aipt-settings.php:271
 msgid "Save settings"
@@ -284,8 +296,8 @@ msgid "Set the post language (Polylang) and save the post first."
 msgstr "Сначала задайте язык записи (Polylang) и сохраните её."
 
 #: includes/class-aipt-metabox.php:94
-msgid "Filled fields are kept; mismatched repeater and flexible content blocks are replaced in full."
-msgstr "Заполненные поля сохраняются; несовпавшие repeater и flexible content заменяются целиком."
+msgid "Filled fields are kept. New flexible content sections are added and translated, existing sections are kept; repeater blocks with a different number of rows are replaced in full."
+msgstr "Заполненные поля сохраняются. Новые секции flexible content добавляются и переводятся, существующие секции сохраняются; блоки repeater с другим числом строк заменяются целиком."
 
 #: includes/class-aipt-metabox.php:96
 msgid "Safe translation"

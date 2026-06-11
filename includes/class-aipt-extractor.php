@@ -19,7 +19,7 @@ class AIPT_Extractor {
 	const YOAST_KEYS = array('_yoast_wpseo_title', '_yoast_wpseo_metadesc', '_yoast_wpseo_focuskw');
 
 	/**
-	 * @return array{items: array, tree: array, remap: array, meta: array, preserve: array, overwrite: array}
+	 * @return array{items: array, tree: array, remap: array, meta: array, preserve: array, overwrite: array, flex: array, skip: array}
 	 */
 	public static function extract(int $post_id, int $target_id = 0, bool $safe = false): array {
 		$post        = get_post($post_id);
@@ -70,6 +70,8 @@ class AIPT_Extractor {
 		$target_tree = array();
 		$remap       = array();
 		$overwrite   = array();
+		$flex        = array();
+		$skip        = array();
 		if (aipt_acf_active()) {
 			$fields = get_field_objects($post_id, false);
 			if (is_array($fields)) {
@@ -89,7 +91,9 @@ class AIPT_Extractor {
 							}
 						}
 					}
-					$overwrite = AIPT_Safe_Merge::collect_overwrite_paths(array_values($fields), $tree, $target_tree);
+					$paths     = AIPT_Safe_Merge::collect_paths(array_values($fields), $tree, $target_tree);
+					$overwrite = $paths['overwrite'];
+					$flex      = $paths['flex'];
 				}
 
 				foreach ($fields as $field) {
@@ -105,6 +109,7 @@ class AIPT_Extractor {
 						$add,
 						$remap,
 						$preserve,
+						$skip,
 						$overwrite,
 						(bool) $target_post
 					);
@@ -119,6 +124,8 @@ class AIPT_Extractor {
 			'meta'      => $meta,
 			'preserve'  => $preserve,
 			'overwrite' => $overwrite,
+			'flex'      => $flex,
+			'skip'      => $skip,
 		);
 	}
 
@@ -131,10 +138,21 @@ class AIPT_Extractor {
 		callable $add,
 		array &$remap,
 		array &$preserve,
+		array &$skip,
 		array $overwrite,
 		bool $safe
 	): void {
-		$type = $field['type'] ?? '';
+		$type   = $field['type'] ?? '';
+		$action = AIPT_ACF_Schema::action($field, $overrides);
+
+		if ($action === 'skip') {
+			// Only a "Don't touch" override on a translatable field is recorded;
+			// structurally skipped fields (message/tab/accordion) carry no value.
+			if (AIPT_ACF_Schema::default_action($field) === 'translate') {
+				$skip[] = $path;
+			}
+			return;
+		}
 
 		if (AIPT_ACF_Schema::is_container($field)) {
 			if (!is_array($value)) {
@@ -160,6 +178,7 @@ class AIPT_Extractor {
 								$add,
 								$remap,
 								$preserve,
+								$skip,
 								$overwrite,
 								$safe
 							);
@@ -190,6 +209,7 @@ class AIPT_Extractor {
 								$add,
 								$remap,
 								$preserve,
+								$skip,
 								$overwrite,
 								$safe
 							);
@@ -208,6 +228,7 @@ class AIPT_Extractor {
 							$add,
 							$remap,
 							$preserve,
+							$skip,
 							$overwrite,
 							$safe
 						);
@@ -220,8 +241,6 @@ class AIPT_Extractor {
 		if ($safe && self::preserve_value($path, $target_value, $overwrite, $preserve)) {
 			return;
 		}
-
-		$action = AIPT_ACF_Schema::action($field, $overrides);
 
 		if ($action === 'translate' && is_string($value) && self::is_translatable($value)) {
 			if (strlen($value) > self::CHUNK_SIZE) {

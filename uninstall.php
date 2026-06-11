@@ -8,6 +8,7 @@ delete_option('aipt_api_key');
 delete_option('aipt_settings');
 delete_option('aipt_usage_log');
 delete_option('aipt_usage_totals');
+delete_option('aipt_usage_lock');
 
 global $wpdb;
 

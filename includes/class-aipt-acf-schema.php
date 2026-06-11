@@ -112,9 +112,10 @@ class AIPT_ACF_Schema {
 	}
 
 	public static function action(array $field, array $overrides): string {
-		$action = self::default_action($field);
-		if ($action === 'translate' && ($overrides[$field['key'] ?? ''] ?? '') === 'copy') {
-			return 'copy';
+		$action   = self::default_action($field);
+		$override = $overrides[$field['key'] ?? ''] ?? '';
+		if ($action === 'translate' && in_array($override, array('copy', 'skip'), true)) {
+			return $override;
 		}
 		return $action;
 	}
@@ -187,11 +188,20 @@ class AIPT_ACF_Schema {
 		foreach ($nodes as $node) {
 			$children = $node['children'] ? '<ul>' . self::render_nodes($node['children'], $overrides) . '</ul>' : '';
 			if ($node['action'] === 'translate') {
-				$checked = (($overrides[$node['key']] ?? '') !== 'copy');
+				$mode = $overrides[$node['key']] ?? 'translate';
+				if (!in_array($mode, array('copy', 'skip'), true)) {
+					$mode = 'translate';
+				}
 				$html .= '<li><label>'
-					. '<input type="hidden" name="aipt_settings[acf_all][]" value="' . esc_attr($node['key']) . '">'
-					. '<input type="checkbox" name="aipt_settings[acf_translate][]" value="' . esc_attr($node['key']) . '" ' . checked($checked, true, false) . '>'
 					. esc_html($node['label']) . ' <code>' . esc_html($node['type']) . '</code>'
+					. ' <select name="aipt_settings[acf_mode][' . esc_attr($node['key']) . ']">'
+					. '<option value="translate" ' . selected($mode, 'translate', false) . '>'
+					. esc_html__('Translate', 'ai-polylang-translator') . '</option>'
+					. '<option value="copy" ' . selected($mode, 'copy', false) . '>'
+					. esc_html__('Copy', 'ai-polylang-translator') . '</option>'
+					. '<option value="skip" ' . selected($mode, 'skip', false) . '>'
+					. esc_html__("Don't touch", 'ai-polylang-translator') . '</option>'
+					. '</select>'
 					. '</label>' . $children . '</li>';
 			} elseif ($node['action'] === 'recurse' || $node['type'] === 'layout') {
 				if ($children === '') {

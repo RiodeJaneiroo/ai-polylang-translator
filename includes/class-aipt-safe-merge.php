@@ -18,7 +18,17 @@ class AIPT_Safe_Merge {
 	}
 
 	public static function collect_overwrite_paths(array $fields, array $source, array $target): array {
-		$paths = array();
+		return self::collect_paths($fields, $source, $target)['overwrite'];
+	}
+
+	/**
+	 * @return array{overwrite: array, flex: array} overwrite drives full-field
+	 * extraction/replacement; flex marks flexible_content fields whose sections
+	 * are merged row-aligned instead of replaced wholesale.
+	 */
+	public static function collect_paths(array $fields, array $source, array $target): array {
+		$overwrite = array();
+		$flex      = array();
 		foreach ($fields as $field) {
 			$key = (string) ($field['key'] ?? '');
 			if ($key === '') {
@@ -29,13 +39,14 @@ class AIPT_Safe_Merge {
 				$source[$key] ?? null,
 				$target[$key] ?? null,
 				array('acf', $key),
-				$paths
+				$overwrite,
+				$flex
 			);
 		}
-		return $paths;
+		return array('overwrite' => $overwrite, 'flex' => $flex);
 	}
 
-	public static function merge_acf(array $fields, array $translated, array $target, array $overwrite_paths): array {
+	public static function merge_acf(array $fields, array $translated, array $target, array $overwrite_paths, array $flex_paths): array {
 		foreach ($fields as $field) {
 			$key = (string) ($field['key'] ?? '');
 			if ($key === '') {
@@ -53,7 +64,8 @@ class AIPT_Safe_Merge {
 				$translated[$key],
 				$target[$key] ?? null,
 				array('acf', $key),
-				$overwrite_paths
+				$overwrite_paths,
+				$flex_paths
 			);
 		}
 		return $translated;
@@ -71,14 +83,60 @@ class AIPT_Safe_Merge {
 		return false;
 	}
 
-	private static function collect_field_paths(array $field, $source, $target, array $path, array &$paths): void {
+	/**
+	 * Pair source sections with existing-translation sections by matching the Nth
+	 * occurrence of a layout on each side. Extra source occurrences stay unmatched
+	 * (translated as new), extra target occurrences are left for the caller to keep.
+	 *
+	 * @return array<int, int> Source row index => target row index.
+	 */
+	public static function align_flexible_rows(array $source_rows, array $target_rows): array {
+		$target_by_layout = array();
+		foreach ($target_rows as $index => $row) {
+			$layout = is_array($row) ? (string) ($row['acf_fc_layout'] ?? '') : '';
+			if ($layout !== '') {
+				$target_by_layout[$layout][] = $index;
+			}
+		}
+
+		$matches = array();
+		$cursor  = array();
+		foreach ($source_rows as $source_index => $row) {
+			$layout = is_array($row) ? (string) ($row['acf_fc_layout'] ?? '') : '';
+			if ($layout === '' || empty($target_by_layout[$layout])) {
+				continue;
+			}
+			$nth = $cursor[$layout] ?? 0;
+			if (!isset($target_by_layout[$layout][$nth])) {
+				continue;
+			}
+			$matches[$source_index]  = $target_by_layout[$layout][$nth];
+			$cursor[$layout]         = $nth + 1;
+		}
+		return $matches;
+	}
+
+	private static function collect_field_paths(array $field, $source, $target, array $path, array &$overwrite, array &$flex): void {
 		$row_container = AIPT_ACF_Schema::is_row_container_value($field, $source)
 			|| AIPT_ACF_Schema::is_row_container_value($field, $target);
 		if ($row_container) {
 			$source_rows = is_array($source) ? array_values($source) : array();
 			$target_rows = is_array($target) ? array_values($target) : array();
 			if (!self::rows_match($field, $source_rows, $target_rows)) {
-				$paths[] = $path;
+				$overwrite[] = $path;
+				// flexible_content sections are merged row-aligned at write time, so
+				// the field also enters the flex list; repeater/generic stay overwrite-only.
+				if (($field['type'] ?? '') === 'flexible_content') {
+					$flex[] = $path;
+					self::collect_aligned_flexible_paths(
+						$field,
+						$source_rows,
+						$target_rows,
+						$path,
+						$overwrite,
+						$flex
+					);
+				}
 				return;
 			}
 
@@ -94,7 +152,8 @@ class AIPT_Safe_Merge {
 						is_array($source_row) ? ($source_row[$key] ?? null) : null,
 						is_array($target_row) ? ($target_row[$key] ?? null) : null,
 						array_merge($path, array($index, $key)),
-						$paths
+						$overwrite,
+						$flex
 					);
 				}
 			}
@@ -114,7 +173,40 @@ class AIPT_Safe_Merge {
 					$source[$key] ?? null,
 					$target[$key] ?? null,
 					array_merge($path, array($key)),
-					$paths
+					$overwrite,
+					$flex
+				);
+			}
+		}
+	}
+
+	private static function collect_aligned_flexible_paths(
+		array $field,
+		array $source_rows,
+		array $target_rows,
+		array $path,
+		array &$overwrite,
+		array &$flex
+	): void {
+		$matches = self::align_flexible_rows($source_rows, $target_rows);
+		foreach ($source_rows as $source_index => $source_row) {
+			if (!is_array($source_row) || !isset($matches[$source_index])) {
+				continue;
+			}
+
+			$target_row = $target_rows[$matches[$source_index]];
+			foreach (self::row_fields($field, $source_row) as $sub_field) {
+				$key = (string) ($sub_field['key'] ?? '');
+				if ($key === '') {
+					continue;
+				}
+				self::collect_field_paths(
+					$sub_field,
+					$source_row[$key] ?? null,
+					$target_row[$key] ?? null,
+					array_merge($path, array($source_index, $key)),
+					$overwrite,
+					$flex
 				);
 			}
 		}
@@ -154,7 +246,11 @@ class AIPT_Safe_Merge {
 		return array();
 	}
 
-	private static function merge_field(array $field, $translated, $target, array $path, array $overwrite_paths) {
+	private static function merge_field(array $field, $translated, $target, array $path, array $overwrite_paths, array $flex_paths) {
+		if (($field['type'] ?? '') === 'flexible_content' && in_array($path, $flex_paths, true)) {
+			return self::merge_flexible_aligned($field, $translated, $target, $path, $overwrite_paths, $flex_paths);
+		}
+
 		if (self::is_overwritten($path, $overwrite_paths)) {
 			return $translated;
 		}
@@ -188,7 +284,8 @@ class AIPT_Safe_Merge {
 						$translated_row[$key],
 						$target_row[$key] ?? null,
 						array_merge($path, array($index, $key)),
-						$overwrite_paths
+						$overwrite_paths,
+						$flex_paths
 					);
 				}
 			}
@@ -216,12 +313,86 @@ class AIPT_Safe_Merge {
 					$translated[$key],
 					$target[$key] ?? null,
 					array_merge($path, array($key)),
-					$overwrite_paths
+					$overwrite_paths,
+					$flex_paths
 				);
 			}
 			return $translated;
 		}
 
 		return self::has_value($target) ? $target : $translated;
+	}
+
+	/**
+	 * Section-aware merge for a flexible_content field whose section structure
+	 * differs between source and existing translation. Source-order sections come
+	 * first (matched ones merged sub-field-wise with the filled translation, new
+	 * ones kept translated), then any target-only sections are appended in place.
+	 */
+	private static function merge_flexible_aligned(array $field, $translated, $target, array $path, array $overwrite_paths, array $flex_paths): array {
+		$translated_rows = is_array($translated) ? array_values($translated) : array();
+		$target_rows     = is_array($target) ? array_values($target) : array();
+		if (!$translated_rows) {
+			return array_values($target_rows);
+		}
+		if (!$target_rows) {
+			return array_values($translated_rows);
+		}
+
+		// Sub-merge must not re-trigger the wholesale-overwrite branch for this same
+		// field, so its own path is stripped from the overwrite list passed down.
+		$sub_overwrite = array();
+		foreach ($overwrite_paths as $overwrite_path) {
+			if ($overwrite_path !== $path) {
+				$sub_overwrite[] = $overwrite_path;
+			}
+		}
+
+		$matches = self::align_flexible_rows($translated_rows, $target_rows);
+		$used    = array();
+		$result  = array();
+		foreach ($translated_rows as $source_index => $translated_row) {
+			if (!is_array($translated_row)) {
+				continue;
+			}
+			if (!isset($matches[$source_index])) {
+				$result[] = $translated_row;
+				continue;
+			}
+
+			$match_index         = $matches[$source_index];
+			$used[$match_index] = true;
+			$target_row         = $target_rows[$match_index];
+			foreach (self::row_fields($field, $translated_row) as $sub_field) {
+				$key = (string) ($sub_field['key'] ?? '');
+				if ($key === '') {
+					continue;
+				}
+				if (!array_key_exists($key, $translated_row) && array_key_exists($key, $target_row)) {
+					$translated_row[$key] = $target_row[$key];
+					continue;
+				}
+				if (!array_key_exists($key, $translated_row)) {
+					continue;
+				}
+				$translated_row[$key] = self::merge_field(
+					$sub_field,
+					$translated_row[$key],
+					$target_row[$key] ?? null,
+					array_merge($path, array($source_index, $key)),
+					$sub_overwrite,
+					$flex_paths
+				);
+			}
+			$result[] = $translated_row;
+		}
+
+		foreach ($target_rows as $i => $target_row) {
+			if (!isset($used[$i]) && is_array($target_row)) {
+				$result[] = $target_row;
+			}
+		}
+
+		return array_values($result);
 	}
 }

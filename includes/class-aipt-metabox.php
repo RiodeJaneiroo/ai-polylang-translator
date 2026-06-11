@@ -91,7 +91,7 @@ class AIPT_Metabox {
 					echo '<a href="' . esc_url($edit_link) . '">' . esc_html__('Open translation', 'ai-polylang-translator') . '</a> ';
 				}
 				echo '<label class="aipt-safe-option" title="'
-					. esc_attr__('Filled fields are kept; mismatched repeater and flexible content blocks are replaced in full.', 'ai-polylang-translator')
+					. esc_attr__('Filled fields are kept. New flexible content sections are added and translated, existing sections are kept; repeater blocks with a different number of rows are replaced in full.', 'ai-polylang-translator')
 					. '"><input type="checkbox" class="aipt-safe-mode" value="1" checked> '
 					. esc_html__('Safe translation', 'ai-polylang-translator')
 					. '</label>';
@@ -221,6 +221,11 @@ class AIPT_Metabox {
 			'meta'        => $extract['meta'],
 			'preserve'    => $extract['preserve'],
 			'overwrite'   => $extract['overwrite'],
+			'flex'        => $extract['flex'],
+			'skip'        => $extract['skip'],
+			// Jobs without this marker were created by 1.2 and still rely on
+			// finalize-time aggregation of usage stored in batch transients.
+			'usage_recorded_per_batch' => true,
 			'batches'     => $batches,
 		));
 
@@ -258,6 +263,20 @@ class AIPT_Metabox {
 		}
 
 		$result = AIPT_Gateway::translate_map($map, $job['source_name'], $job['target_name'], (string) ($job['model'] ?? ''));
+
+		// Record usage immediately after the API call — tokens are billed even when
+		// the reply is rejected (truncated, empty, bad JSON), so we must not defer
+		// this to finalize where the error path would exit first. Pre-upgrade jobs
+		// keep their old finalize-time accounting to avoid double-counting.
+		$usage = AIPT_Gateway::get_usage();
+		if (!empty($job['usage_recorded_per_batch'])
+			&& ($usage['tokens_in'] || $usage['tokens_out'] || $usage['cost'])) {
+			AIPT_Usage::record_job_usage(
+				$job,
+				$job_id,
+				$usage
+			);
+		}
 
 		if (is_wp_error($result)) {
 			wp_send_json_error(array('message' => $result->get_error_message()));
@@ -312,21 +331,15 @@ class AIPT_Metabox {
 					$job['finalized_id'] = (int) $new_id;
 					AIPT_Job::save($job_id, $job);
 
-					// Log the token cost for this completed job. Failed/abandoned jobs are
-					// intentionally not recorded — only successful translations are billed here.
-					$usage = AIPT_Job::get_usage_total($job_id, $total);
-					AIPT_Usage::record(
-						$post_id,
-						(string) ($job['target'] ?? ''),
-						// Legacy jobs created before the model snapshot existed (1-hour window)
-						// have no 'model' key; they actually ran on the live setting, so log that
-						// rather than a blank label — consistent with the gateway's empty-override
-						// fallback to AIPT_Settings::get()['model'].
-						(string) ($job['model'] ?? AIPT_Settings::get()['model']),
-						$usage['tokens_in'],
-						$usage['tokens_out'],
-						$usage['cost']
-					);
+					// Jobs prepared before per-request accounting was introduced have
+					// usage only in their batch transients. Aggregate it before cleanup.
+					if (empty($job['usage_recorded_per_batch'])) {
+						AIPT_Usage::record_job_usage(
+							$job,
+							$job_id,
+							AIPT_Job::get_usage_total($job_id, $total)
+						);
+					}
 
 					AIPT_Job::delete_batches($job_id, $total);
 				}

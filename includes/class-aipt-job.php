@@ -11,6 +11,8 @@ class AIPT_Job {
 	const TTL    = HOUR_IN_SECONDS;
 	const FINALIZE_LOCK_TTL = 300;
 
+	private static $lock_owners = array();
+
 	public static function create(array $data): string {
 		$id = wp_generate_uuid4();
 		// A brand-new uuid key never matches an existing value, so a false here is a
@@ -111,7 +113,7 @@ class AIPT_Job {
 	}
 
 	// Sum token usage across every batch, reading the same transients save_batch() wrote.
-	// A missing transient (or a legacy bare-map payload from the old code) counts as 0 so
+	// A missing transient (or a legacy bare-map payload from older code) counts as 0 so
 	// that cost tracking never blocks finalize.
 	public static function get_usage_total(string $id, int $total): array {
 		$totals = array('tokens_in' => 0, 'tokens_out' => 0, 'cost' => 0.0);
@@ -130,6 +132,66 @@ class AIPT_Job {
 		return $totals;
 	}
 
+	// Generic named lock backed by a DB row (same INSERT IGNORE mechanic as the
+	// finalize lock). Used for usage-write serialisation across concurrent batch
+	// requests. $key must be a stable, globally unique option name (e.g. 'aipt_usage_lock').
+	// $ttl: seconds before a held lock is considered stale and can be stolen.
+	// Spins up to $tries times with $usleep_us microseconds between attempts.
+	// Returns false only after exhausting all tries — callers should degrade gracefully.
+	public static function acquire_named_lock(string $key, int $ttl, int $tries = 50, int $usleep_us = 20000): bool {
+		global $wpdb;
+
+		for ($attempt = 0; $attempt < $tries; $attempt++) {
+			$now        = time();
+			$lock_value = self::new_lock_value($now);
+			if (self::insert_lock($key, $lock_value)) {
+				self::$lock_owners[$key] = $lock_value;
+				return true;
+			}
+
+			// Read the stored timestamp directly from the DB — the object cache may
+			// still reflect our own failed INSERT or a previous holder's write.
+			$stored_value = (string) $wpdb->get_var($wpdb->prepare(
+				"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+				$key
+			));
+			$locked_at = (int) $stored_value;
+
+			if ($locked_at && $locked_at > $now - $ttl) {
+				// Lock is fresh — somebody else holds it; wait and retry.
+				usleep($usleep_us);
+				continue;
+			}
+
+			// Delete only the stale value we actually observed. If another contender
+			// replaced it first, leave that new owner's lock intact.
+			if ($stored_value !== '' && !self::delete_lock_value($key, $stored_value)) {
+				usleep($usleep_us);
+				continue;
+			}
+
+			$lock_value = self::new_lock_value($now);
+			if (self::insert_lock($key, $lock_value)) {
+				self::$lock_owners[$key] = $lock_value;
+				return true;
+			}
+
+			usleep($usleep_us);
+		}
+
+		return false;
+	}
+
+	// Release a lock acquired via acquire_named_lock().
+	public static function release_named_lock(string $key): void {
+		if (!isset(self::$lock_owners[$key])) {
+			return;
+		}
+		$lock_value = self::$lock_owners[$key];
+		unset(self::$lock_owners[$key]);
+		self::delete_lock_value($key, $lock_value);
+	}
+
 	public static function acquire_finalize_lock(string $id): bool {
 		if (!wp_is_uuid($id)) {
 			return false;
@@ -137,12 +199,14 @@ class AIPT_Job {
 
 		$key = self::lock_key($id);
 		$now = time();
+		$lock_value = self::new_lock_value($now);
 
 		// Atomic test-and-set. add_option() is not atomic (get_option check +
 		// INSERT ... ON DUPLICATE KEY UPDATE), so two concurrent finalizes can both
 		// "win" it. INSERT IGNORE wins only when it actually inserts the row, mirroring
 		// WP_Upgrader::create_lock() in core.
-		if (self::insert_lock($key, $now)) {
+		if (self::insert_lock($key, $lock_value)) {
+			self::$lock_owners[$key] = $lock_value;
 			return true;
 		}
 
@@ -150,34 +214,62 @@ class AIPT_Job {
 		// cache may not know about our raw INSERT). If it is still fresh, somebody else
 		// holds the lock; otherwise drop it and try the atomic insert one more time.
 		global $wpdb;
-		$locked_at = (int) $wpdb->get_var($wpdb->prepare(
+		$stored_value = (string) $wpdb->get_var($wpdb->prepare(
 			"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
 			$key
 		));
+		$locked_at = (int) $stored_value;
 		if ($locked_at && $locked_at > $now - self::FINALIZE_LOCK_TTL) {
 			return false;
 		}
 
-		delete_option($key);
-		return self::insert_lock($key, $now);
+		if ($stored_value !== '' && !self::delete_lock_value($key, $stored_value)) {
+			return false;
+		}
+
+		$lock_value = self::new_lock_value($now);
+		if (!self::insert_lock($key, $lock_value)) {
+			return false;
+		}
+		self::$lock_owners[$key] = $lock_value;
+		return true;
 	}
 
-	private static function insert_lock(string $key, int $now): bool {
+	private static function new_lock_value(int $now): string {
+		return $now . ':' . wp_generate_uuid4();
+	}
+
+	private static function insert_lock(string $key, string $lock_value): bool {
 		global $wpdb;
 		$inserted = $wpdb->query($wpdb->prepare(
 			"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'off')",
 			$key,
-			(string) $now
+			$lock_value
 		));
 		// Drop any stale cached "option does not exist" entry so later reads see the row.
+		self::clear_lock_cache($key);
+		return $inserted === 1;
+	}
+
+	private static function delete_lock_value(string $key, string $lock_value): bool {
+		global $wpdb;
+		$deleted = $wpdb->query($wpdb->prepare(
+			"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+			$key,
+			$lock_value
+		));
+		self::clear_lock_cache($key);
+		return $deleted === 1;
+	}
+
+	private static function clear_lock_cache(string $key): void {
 		wp_cache_delete($key, 'options');
 		wp_cache_delete('notoptions', 'options');
-		return $inserted === 1;
 	}
 
 	public static function release_finalize_lock(string $id): void {
 		if (wp_is_uuid($id)) {
-			delete_option(self::lock_key($id));
+			self::release_named_lock(self::lock_key($id));
 		}
 	}
 

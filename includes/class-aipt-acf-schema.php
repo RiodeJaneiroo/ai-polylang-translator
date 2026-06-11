@@ -177,7 +177,7 @@ class AIPT_ACF_Schema {
 				. '<ul class="aipt-acf-tree">' . $inner . '</ul></div>';
 		}
 		if ($html === '') {
-			return '<p>' . esc_html__('Группы полей ACF не найдены.', 'ai-polylang-translator') . '</p>';
+			return '<p>' . esc_html__('No ACF field groups found.', 'ai-polylang-translator') . '</p>';
 		}
 		return $html;
 	}
@@ -200,7 +200,7 @@ class AIPT_ACF_Schema {
 				$html .= '<li><span class="aipt-acf-branch">' . esc_html($node['label'])
 					. ' <code>' . esc_html($node['type']) . '</code></span>' . $children . '</li>';
 			} else {
-				$html .= '<li><span class="aipt-acf-copy" title="' . esc_attr__('Копируется без перевода', 'ai-polylang-translator') . '">'
+				$html .= '<li><span class="aipt-acf-copy" title="' . esc_attr__('Copied without translation', 'ai-polylang-translator') . '">'
 					. esc_html($node['label']) . ' <code>' . esc_html($node['type']) . '</code></span>' . $children . '</li>';
 			}
 		}

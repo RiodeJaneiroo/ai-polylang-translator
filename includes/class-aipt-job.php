@@ -36,14 +36,25 @@ class AIPT_Job {
 		}
 	}
 
-	// Persist one batch's results in its own transient so concurrent batch
-	// requests never read-modify-write a shared blob (last-write-wins data loss).
-	public static function save_batch(string $id, int $index, array $results): bool {
+	// Persist one batch's results AND its token usage in a single transient so
+	// concurrent batch requests never read-modify-write a shared blob (last-write-wins
+	// data loss), and so usage can never drift out of sync with the saved map: one
+	// atomic write per batch, eviction-symmetric (lose the payload, lose the usage, and
+	// the idempotent retry rewrites both).
+	public static function save_batch(string $id, int $index, array $results, array $usage = array()): bool {
 		if (!wp_is_uuid($id)) {
 			return false;
 		}
-		$key = self::batch_key($id, $index);
-		if (set_transient($key, $results, self::TTL)) {
+		$key     = self::batch_key($id, $index);
+		$payload = array(
+			'map'   => $results,
+			'usage' => array(
+				'tokens_in'  => (int) ($usage['tokens_in'] ?? 0),
+				'tokens_out' => (int) ($usage['tokens_out'] ?? 0),
+				'cost'       => (float) ($usage['cost'] ?? 0),
+			),
+		);
+		if (set_transient($key, $payload, self::TTL)) {
 			return true;
 		}
 		// set_transient returns false when the value is unchanged too (idempotent
@@ -55,7 +66,8 @@ class AIPT_Job {
 		if (!wp_is_uuid($id)) {
 			return false;
 		}
-		return get_transient(self::batch_key($id, $index));
+		$batch = get_transient(self::batch_key($id, $index));
+		return is_array($batch) ? self::batch_map($batch) : $batch;
 	}
 
 	// Collect every batch transient for a job. Returns the merged item_id => text
@@ -70,9 +82,16 @@ class AIPT_Job {
 			if (!is_array($batch)) {
 				return null;
 			}
-			$results += $batch;
+			$results += self::batch_map($batch);
 		}
 		return $results;
+	}
+
+	// Extract the translation map from a batch transient. In-flight jobs written by the
+	// old code (1-hour TTL) stored the bare map without a 'map' key — treat those as a
+	// legacy payload so older batches keep finalizing during the upgrade window.
+	private static function batch_map(array $batch): array {
+		return array_key_exists('map', $batch) ? (array) $batch['map'] : $batch;
 	}
 
 	public static function delete(string $id): void {
@@ -89,6 +108,26 @@ class AIPT_Job {
 		for ($index = 0; $index < $total; $index++) {
 			delete_transient(self::batch_key($id, $index));
 		}
+	}
+
+	// Sum token usage across every batch, reading the same transients save_batch() wrote.
+	// A missing transient (or a legacy bare-map payload from the old code) counts as 0 so
+	// that cost tracking never blocks finalize.
+	public static function get_usage_total(string $id, int $total): array {
+		$totals = array('tokens_in' => 0, 'tokens_out' => 0, 'cost' => 0.0);
+		if (!wp_is_uuid($id)) {
+			return $totals;
+		}
+		for ($index = 0; $index < $total; $index++) {
+			$batch = get_transient(self::batch_key($id, $index));
+			if (is_array($batch) && isset($batch['usage']) && is_array($batch['usage'])) {
+				$usage = $batch['usage'];
+				$totals['tokens_in']  += (int) ($usage['tokens_in'] ?? 0);
+				$totals['tokens_out'] += (int) ($usage['tokens_out'] ?? 0);
+				$totals['cost']       += (float) ($usage['cost'] ?? 0);
+			}
+		}
+		return $totals;
 	}
 
 	public static function acquire_finalize_lock(string $id): bool {

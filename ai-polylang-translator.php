@@ -1,11 +1,12 @@
 <?php
 /**
  * Plugin Name: AI Polylang Translator
- * Description: AI-перевод записей и ACF-полей на другие языки Polylang через Vercel AI Gateway.
- * Version: 1.1.1
+ * Description: AI translation of posts and ACF fields into other Polylang languages via Vercel AI Gateway.
+ * Version: 1.2.0
  * Author: Vadym Zm
  * Author URI: https://artzm.dev/
  * Text Domain: ai-polylang-translator
+ * Domain Path: /languages
  * Requires at least: 6.0
  * Tested up to: 7.0
  * Requires PHP: 8.1
@@ -15,10 +16,14 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
-define('AIPT_VERSION', '1.1.1');
+define('AIPT_VERSION', '1.2.0');
 define('AIPT_FILE', __FILE__);
 define('AIPT_DIR', plugin_dir_path(__FILE__));
 define('AIPT_URL', plugin_dir_url(__FILE__));
+
+add_action('init', function () {
+	load_plugin_textdomain('ai-polylang-translator', false, dirname(plugin_basename(__FILE__)) . '/languages');
+});
 
 register_activation_hook(__FILE__, function () {
 	add_option('aipt_api_key', '', '', 'no');
@@ -40,7 +45,7 @@ add_action('plugins_loaded', function () {
 				return;
 			}
 			echo '<div class="notice notice-error"><p>'
-				. esc_html__('AI Polylang Translator: для работы плагина требуется активный Polylang.', 'ai-polylang-translator')
+				. esc_html__('AI Polylang Translator requires the Polylang plugin to be active.', 'ai-polylang-translator')
 				. '</p></div>';
 		});
 		return;
@@ -52,6 +57,7 @@ add_action('plugins_loaded', function () {
 	require_once AIPT_DIR . 'includes/class-aipt-gateway.php';
 	require_once AIPT_DIR . 'includes/class-aipt-extractor.php';
 	require_once AIPT_DIR . 'includes/class-aipt-job.php';
+	require_once AIPT_DIR . 'includes/class-aipt-usage.php';
 	require_once AIPT_DIR . 'includes/class-aipt-writer.php';
 	require_once AIPT_DIR . 'includes/class-aipt-metabox.php';
 

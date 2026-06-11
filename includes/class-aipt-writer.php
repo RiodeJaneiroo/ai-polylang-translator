@@ -15,7 +15,7 @@ class AIPT_Writer {
 	public static function write(array $job) {
 		$source = get_post((int) $job['post_id']);
 		if (!$source) {
-			return new WP_Error('aipt_no_source', __('Исходная запись не найдена.', 'ai-polylang-translator'));
+			return new WP_Error('aipt_no_source', __('Source post not found.', 'ai-polylang-translator'));
 		}
 
 		$target          = (string) $job['target'];
@@ -25,19 +25,19 @@ class AIPT_Writer {
 		// overwrite a post that the confirmation screen never showed.
 		if (!$prepared) {
 			if ((int) (pll_get_post($source->ID, $target) ?: 0)) {
-				return new WP_Error('aipt_target_changed', __('Перевод на этот язык появился уже после подготовки. Начните перевод заново.', 'ai-polylang-translator'));
+				return new WP_Error('aipt_target_changed', __('A translation into this language was created after the job was prepared. Please start the translation again.', 'ai-polylang-translator'));
 			}
 		} elseif (!get_post($prepared)) {
-			return new WP_Error('aipt_target_changed', __('Подготовленный перевод был удалён. Начните перевод заново.', 'ai-polylang-translator'));
+			return new WP_Error('aipt_target_changed', __('The prepared translation post was deleted. Please start the translation again.', 'ai-polylang-translator'));
 		}
 
 		if ($existing && !current_user_can('edit_post', $existing)) {
-			return new WP_Error('aipt_cannot_edit_translation', __('Недостаточно прав для изменения существующего перевода.', 'ai-polylang-translator'));
+			return new WP_Error('aipt_cannot_edit_translation', __('You do not have permission to edit the existing translation.', 'ai-polylang-translator'));
 		}
 		if (!$existing) {
 			$post_type = get_post_type_object($source->post_type);
 			if (!$post_type || !current_user_can($post_type->cap->create_posts)) {
-				return new WP_Error('aipt_cannot_create_translation', __('Недостаточно прав для создания перевода.', 'ai-polylang-translator'));
+				return new WP_Error('aipt_cannot_create_translation', __('You do not have permission to create a translation.', 'ai-polylang-translator'));
 			}
 		}
 
@@ -75,7 +75,7 @@ class AIPT_Writer {
 
 		foreach ($job['items'] as $id => $item) {
 			if (!array_key_exists($id, $results)) {
-				return new WP_Error('aipt_incomplete', __('Перевод не завершён — отсутствуют части текста.', 'ai-polylang-translator'));
+				return new WP_Error('aipt_incomplete', __('Translation is incomplete — some text parts are missing.', 'ai-polylang-translator'));
 			}
 			$text = (string) $results[$id];
 			if ($kses) {

@@ -18,7 +18,7 @@ class AIPT_Metabox {
 	public function register(): void {
 		$settings = AIPT_Settings::get();
 		foreach ($settings['post_types'] as $post_type) {
-			add_meta_box('aipt_metabox', __('AI-перевод', 'ai-polylang-translator'), array($this, 'render'), $post_type, 'side');
+			add_meta_box('aipt_metabox', __('AI Translation', 'ai-polylang-translator'), array($this, 'render'), $post_type, 'side');
 		}
 	}
 
@@ -40,28 +40,29 @@ class AIPT_Metabox {
 			'postId'  => $post_id,
 			'nonce'   => wp_create_nonce('aipt_translate_' . $post_id),
 			'i18n'    => array(
-				'confirmOverwrite' => __('Перевод уже существует. Текущий контент перевода будет заменён. Продолжить?', 'ai-polylang-translator'),
-				'preparing'        => __('Подготовка…', 'ai-polylang-translator'),
-				'batch'            => __('Перевод… блок %1$d из %2$d', 'ai-polylang-translator'),
-				'finalizing'       => __('Сохранение перевода…', 'ai-polylang-translator'),
-				'done'             => __('Готово:', 'ai-polylang-translator'),
-				'openDraft'        => __('Открыть перевод', 'ai-polylang-translator'),
-				'retry'            => __('Повторить', 'ai-polylang-translator'),
-				'error'            => __('Ошибка:', 'ai-polylang-translator'),
+				'confirmOverwrite' => __('A translation already exists. Its current content will be replaced. Continue?', 'ai-polylang-translator'),
+				'preparing'        => __('Preparing…', 'ai-polylang-translator'),
+				/* translators: %1$d: current block number, %2$d: total number of blocks */
+				'batch'            => __('Translating… block %1$d of %2$d', 'ai-polylang-translator'),
+				'finalizing'       => __('Saving translation…', 'ai-polylang-translator'),
+				'done'             => __('Done:', 'ai-polylang-translator'),
+				'openDraft'        => __('Open translation', 'ai-polylang-translator'),
+				'retry'            => __('Retry', 'ai-polylang-translator'),
+				'error'            => __('Error:', 'ai-polylang-translator'),
 			),
 		));
 	}
 
 	public function render(WP_Post $post): void {
 		if (in_array($post->post_status, array('auto-draft', 'trash'), true)) {
-			echo '<p>' . esc_html__('Сначала сохраните запись.', 'ai-polylang-translator') . '</p>';
+			echo '<p>' . esc_html__('Save the post first.', 'ai-polylang-translator') . '</p>';
 			return;
 		}
 
 		if (AIPT_Settings::api_key() === '') {
 			echo '<p>' . wp_kses_post(sprintf(
 				/* translators: %s: settings page URL */
-				__('Укажите API-ключ на <a href="%s">странице настроек</a>.', 'ai-polylang-translator'),
+				__('Enter an API key on the <a href="%s">settings page</a>.', 'ai-polylang-translator'),
 				esc_url(admin_url('options-general.php?page=' . AIPT_Settings::PAGE))
 			)) . '</p>';
 			return;
@@ -69,7 +70,7 @@ class AIPT_Metabox {
 
 		$source_lang = pll_get_post_language($post->ID);
 		if (!$source_lang) {
-			echo '<p>' . esc_html__('Сначала задайте язык записи (Polylang) и сохраните её.', 'ai-polylang-translator') . '</p>';
+			echo '<p>' . esc_html__('Set the post language (Polylang) and save the post first.', 'ai-polylang-translator') . '</p>';
 			return;
 		}
 
@@ -87,19 +88,19 @@ class AIPT_Metabox {
 			if ($existing) {
 				$edit_link = get_edit_post_link($existing);
 				if ($edit_link) {
-					echo '<a href="' . esc_url($edit_link) . '">' . esc_html__('Открыть перевод', 'ai-polylang-translator') . '</a> ';
+					echo '<a href="' . esc_url($edit_link) . '">' . esc_html__('Open translation', 'ai-polylang-translator') . '</a> ';
 				}
 				echo '<label class="aipt-safe-option" title="'
-					. esc_attr__('Заполненные поля сохраняются; несовпавшие repeater и flexible content заменяются целиком.', 'ai-polylang-translator')
+					. esc_attr__('Filled fields are kept; mismatched repeater and flexible content blocks are replaced in full.', 'ai-polylang-translator')
 					. '"><input type="checkbox" class="aipt-safe-mode" value="1" checked> '
-					. esc_html__('Безопасный перевод', 'ai-polylang-translator')
+					. esc_html__('Safe translation', 'ai-polylang-translator')
 					. '</label>';
 				echo '<button type="button" class="button button-primary aipt-translate">'
-					. esc_html__('Обновить перевод', 'ai-polylang-translator')
+					. esc_html__('Update translation', 'ai-polylang-translator')
 					. '</button>';
 			} else {
 				echo '<button type="button" class="button button-primary aipt-translate">'
-					. esc_html(sprintf(/* translators: %s: language name */ __('Перевести на %s', 'ai-polylang-translator'), $language->name))
+					. esc_html(sprintf(/* translators: %s: language name */ __('Translate into %s', 'ai-polylang-translator'), $language->name))
 					. '</button>';
 			}
 			echo '</div>';
@@ -113,7 +114,7 @@ class AIPT_Metabox {
 		$post_id = absint($_POST['post_id'] ?? 0);
 		check_ajax_referer('aipt_translate_' . $post_id);
 		if (!$post_id || !current_user_can('edit_post', $post_id)) {
-			wp_send_json_error(array('message' => __('Недостаточно прав.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('Insufficient permissions.', 'ai-polylang-translator')));
 		}
 		return $post_id;
 	}
@@ -122,7 +123,7 @@ class AIPT_Metabox {
 		$job_id = sanitize_text_field(wp_unslash($_POST['job_id'] ?? ''));
 		$job    = AIPT_Job::get($job_id);
 		if (!$this->job_belongs_to_request($job, $post_id)) {
-			wp_send_json_error(array('message' => __('Задача перевода не найдена или устарела. Начните заново.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('Translation job not found or expired. Start over.', 'ai-polylang-translator')));
 		}
 		return array($job_id, $job);
 	}
@@ -144,10 +145,10 @@ class AIPT_Metabox {
 		$settings = AIPT_Settings::get();
 
 		if (!$post || !in_array($post->post_type, $settings['post_types'], true)) {
-			wp_send_json_error(array('message' => __('Этот тип записи не включён в настройках перевода.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('This post type is not enabled in the translation settings.', 'ai-polylang-translator')));
 		}
 		if (AIPT_Settings::api_key() === '') {
-			wp_send_json_error(array('message' => __('API-ключ не задан.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('API key is not set.', 'ai-polylang-translator')));
 		}
 
 		$target      = sanitize_key(wp_unslash($_POST['target'] ?? ''));
@@ -158,18 +159,18 @@ class AIPT_Metabox {
 		}
 
 		if (!$source_lang) {
-			wp_send_json_error(array('message' => __('У записи не задан язык Polylang.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('The post has no Polylang language set.', 'ai-polylang-translator')));
 		}
 		if (!in_array($target, pll_languages_list(), true) || $target === $source_lang) {
-			wp_send_json_error(array('message' => __('Некорректный целевой язык.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('Invalid target language.', 'ai-polylang-translator')));
 		}
 
 		$existing = (int) (pll_get_post($post_id, $target) ?: 0);
 		if ($existing && !current_user_can('edit_post', $existing)) {
-			wp_send_json_error(array('message' => __('Недостаточно прав для изменения существующего перевода.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('Insufficient permissions to modify the existing translation.', 'ai-polylang-translator')));
 		}
 		if (!$existing && !$this->can_create_translation($post)) {
-			wp_send_json_error(array('message' => __('Недостаточно прав для создания перевода.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('Insufficient permissions to create a translation.', 'ai-polylang-translator')));
 		}
 		if (!$existing) {
 			$mode = 'overwrite';
@@ -177,13 +178,13 @@ class AIPT_Metabox {
 		if ($existing && $mode === 'overwrite' && empty($_POST['confirm'])) {
 			wp_send_json_error(array(
 				'code'    => 'needs_confirm',
-				'message' => __('Перевод уже существует — требуется подтверждение перезаписи.', 'ai-polylang-translator'),
+				'message' => __('A translation already exists — overwrite confirmation is required.', 'ai-polylang-translator'),
 			));
 		}
 
 		$extract = AIPT_Extractor::extract($post_id, $existing, $mode === 'safe');
 		if (!$extract['items'] && $mode !== 'safe') {
-			wp_send_json_error(array('message' => __('В записи нет текста для перевода.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('The post has no text to translate.', 'ai-polylang-translator')));
 		}
 
 		$source_name = (string) pll_get_post_language($post_id, 'name');
@@ -207,6 +208,9 @@ class AIPT_Metabox {
 			'user_id'     => get_current_user_id(),
 			'post_id'     => $post_id,
 			'target'      => $target,
+			// Snapshot the model at job-creation time: the cost log must reflect
+			// the model actually used even if the setting changes before finalize.
+			'model'       => $settings['model'],
 			'existing'    => $existing,
 			'mode'        => $mode,
 			'source_name' => $source_name ?: $source_lang,
@@ -221,7 +225,7 @@ class AIPT_Metabox {
 		));
 
 		if ($job_id === '') {
-			wp_send_json_error(array('message' => __('Не удалось сохранить задачу перевода — слишком большой объём данных. Обратитесь к администратору.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('Could not save the translation job — the payload is too large. Contact an administrator.', 'ai-polylang-translator')));
 		}
 
 		wp_send_json_success(array('job_id' => $job_id, 'total' => count($batches)));
@@ -234,7 +238,7 @@ class AIPT_Metabox {
 		$total = count($job['batches']);
 		$index = absint($_POST['batch'] ?? 0);
 		if (!isset($job['batches'][$index])) {
-			wp_send_json_error(array('message' => __('Неизвестный блок перевода.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('Unknown translation block.', 'ai-polylang-translator')));
 		}
 
 		// Idempotent: a finished batch is never re-translated.
@@ -253,14 +257,14 @@ class AIPT_Metabox {
 			}
 		}
 
-		$result = AIPT_Gateway::translate_map($map, $job['source_name'], $job['target_name']);
+		$result = AIPT_Gateway::translate_map($map, $job['source_name'], $job['target_name'], (string) ($job['model'] ?? ''));
 
 		if (is_wp_error($result)) {
 			wp_send_json_error(array('message' => $result->get_error_message()));
 		}
 
-		if (!AIPT_Job::save_batch($job_id, $index, $result)) {
-			wp_send_json_error(array('message' => __('Не удалось сохранить результат перевода — слишком большой объём данных. Обратитесь к администратору.', 'ai-polylang-translator')));
+		if (!AIPT_Job::save_batch($job_id, $index, $result, AIPT_Gateway::get_usage())) {
+			wp_send_json_error(array('message' => __('Could not save the translation result — the payload is too large. Contact an administrator.', 'ai-polylang-translator')));
 		}
 
 		wp_send_json_success(array('done' => $index + 1, 'total' => $total));
@@ -278,18 +282,18 @@ class AIPT_Metabox {
 		$total   = count($job['batches']);
 		$results = AIPT_Job::get_batches($job_id, $total);
 		if ($results === null) {
-			wp_send_json_error(array('message' => __('Не все блоки переведены — завершение невозможно.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('Not all blocks are translated — finalization is not possible.', 'ai-polylang-translator')));
 		}
 
 		if (!AIPT_Job::acquire_finalize_lock($job_id)) {
-			wp_send_json_error(array('message' => __('Перевод уже сохраняется. Повторите запрос через несколько секунд.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('The translation is already being saved. Try again in a few seconds.', 'ai-polylang-translator')));
 		}
 
 		$error = null;
 		try {
 			$job = AIPT_Job::get($job_id);
 			if (!$this->job_belongs_to_request($job, $post_id)) {
-				$error = new WP_Error('aipt_job_expired', __('Задача перевода не найдена или устарела. Начните заново.', 'ai-polylang-translator'));
+				$error = new WP_Error('aipt_job_expired', __('Translation job not found or expired. Start over.', 'ai-polylang-translator'));
 			} elseif (($job['status'] ?? '') === 'complete') {
 				// Won by a concurrent finalize while we waited for the lock.
 				$error = null;
@@ -307,6 +311,23 @@ class AIPT_Metabox {
 					$job['status']       = 'complete';
 					$job['finalized_id'] = (int) $new_id;
 					AIPT_Job::save($job_id, $job);
+
+					// Log the token cost for this completed job. Failed/abandoned jobs are
+					// intentionally not recorded — only successful translations are billed here.
+					$usage = AIPT_Job::get_usage_total($job_id, $total);
+					AIPT_Usage::record(
+						$post_id,
+						(string) ($job['target'] ?? ''),
+						// Legacy jobs created before the model snapshot existed (1-hour window)
+						// have no 'model' key; they actually ran on the live setting, so log that
+						// rather than a blank label — consistent with the gateway's empty-override
+						// fallback to AIPT_Settings::get()['model'].
+						(string) ($job['model'] ?? AIPT_Settings::get()['model']),
+						$usage['tokens_in'],
+						$usage['tokens_out'],
+						$usage['cost']
+					);
+
 					AIPT_Job::delete_batches($job_id, $total);
 				}
 			}
@@ -324,7 +345,7 @@ class AIPT_Metabox {
 	private function send_finalized_job(array $job): void {
 		$post_id = (int) ($job['finalized_id'] ?? 0);
 		if (!$post_id || !get_post($post_id)) {
-			wp_send_json_error(array('message' => __('Сохранённый перевод не найден. Начните перевод заново.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('The saved translation was not found. Start the translation over.', 'ai-polylang-translator')));
 		}
 
 		wp_send_json_success(array(

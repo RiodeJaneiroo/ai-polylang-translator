@@ -8,11 +8,47 @@ class AIPT_Settings {
 
 	const PAGE = 'ai-polylang-translator';
 
-	const MODELS = array(
-		'google/gemini-2.5-flash'    => 'Gemini 2.5 Flash — самая дешёвая, оптимальна для перевода',
-		'openai/gpt-4.1-mini'        => 'GPT-4.1 mini — баланс цены и качества',
-		'anthropic/claude-haiku-4.5' => 'Claude Haiku 4.5 — максимум качества (дороже)',
-	);
+	// Single source of truth for supported models: select labels, the
+	// client-facing cheat sheet and sanitization all derive from this list.
+	// Prices are approximate USD per ~3,000-character article.
+	public static function model_catalog(): array {
+		return array(
+			'google/gemini-2.5-flash-lite' => array(
+				'name'  => 'Gemini 2.5 Flash Lite',
+				'label' => __('Gemini 2.5 Flash Lite — ultra cheap, fastest', 'ai-polylang-translator'),
+				'desc'  => __('The fastest and cheapest. A good fit when you translate a lot of pages at once.', 'ai-polylang-translator'),
+				'price' => '$0.001',
+			),
+			'google/gemini-2.5-flash' => array(
+				'name'  => 'Gemini 2.5 Flash',
+				'label' => __('Gemini 2.5 Flash — recommended, best value for translation', 'ai-polylang-translator'),
+				'desc'  => __('Recommended default: excellent quality at a low price.', 'ai-polylang-translator'),
+				'price' => '$0.004',
+			),
+			'openai/gpt-4.1-mini' => array(
+				'name'  => 'GPT-4.1 mini',
+				'label' => __('GPT-4.1 mini — balanced price and quality', 'ai-polylang-translator'),
+				'desc'  => __('A solid alternative with balanced price and quality.', 'ai-polylang-translator'),
+				'price' => '$0.003',
+			),
+			'anthropic/claude-sonnet-4.6' => array(
+				'name'  => 'Claude Sonnet 4.6',
+				'label' => __('Claude Sonnet 4.6 — premium quality (most expensive)', 'ai-polylang-translator'),
+				'desc'  => __('Maximum accuracy — for important pages where every word matters.', 'ai-polylang-translator'),
+				'price' => '$0.03',
+			),
+		);
+	}
+
+	public static function models(): array {
+		return array_map(static fn(array $model): string => $model['label'], self::model_catalog());
+	}
+
+	// Sub-dollar amounts keep 4 decimals (typical per-article costs are fractions
+	// of a cent); larger totals read better with 2.
+	private static function format_cost(float $val): string {
+		return '$' . number_format_i18n($val, $val > 0 && $val < 1 ? 4 : 2);
+	}
 
 	public function __construct() {
 		add_action('admin_menu', array($this, 'add_page'));
@@ -37,7 +73,12 @@ class AIPT_Settings {
 		if (!is_array($saved)) {
 			$saved = array();
 		}
-		return array_merge(self::defaults(), $saved);
+		$settings = array_merge(self::defaults(), $saved);
+		// A model removed from the catalog must not silently keep being used or mislead the UI.
+		if (!array_key_exists($settings['model'], self::model_catalog())) {
+			$settings['model'] = self::defaults()['model'];
+		}
+		return $settings;
 	}
 
 	public static function api_key(): string {
@@ -53,8 +94,8 @@ class AIPT_Settings {
 
 	public function add_page(): void {
 		add_options_page(
-			__('AI Переводчик', 'ai-polylang-translator'),
-			__('AI Переводчик', 'ai-polylang-translator'),
+			__('AI Translator', 'ai-polylang-translator'),
+			__('AI Translator', 'ai-polylang-translator'),
 			'manage_options',
 			self::PAGE,
 			array($this, 'render_page')
@@ -88,7 +129,7 @@ class AIPT_Settings {
 			return $old;
 		}
 
-		$out['model'] = isset($value['model']) && isset(self::MODELS[$value['model']])
+		$out['model'] = isset($value['model']) && array_key_exists($value['model'], self::model_catalog())
 			? $value['model']
 			: $out['model'];
 
@@ -137,8 +178,8 @@ class AIPT_Settings {
 			'ajaxUrl' => admin_url('admin-ajax.php'),
 			'nonce'   => wp_create_nonce('aipt_test_key'),
 			'i18n'    => array(
-				'testing' => __('Проверяю…', 'ai-polylang-translator'),
-				'ok'      => __('Ключ работает и сохранён', 'ai-polylang-translator'),
+				'testing' => __('Testing…', 'ai-polylang-translator'),
+				'ok'      => __('Key is valid and saved', 'ai-polylang-translator'),
 			),
 		));
 	}
@@ -146,7 +187,7 @@ class AIPT_Settings {
 	public function ajax_test_key(): void {
 		check_ajax_referer('aipt_test_key');
 		if (!current_user_can('manage_options')) {
-			wp_send_json_error(array('message' => __('Недостаточно прав.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('Insufficient permissions.', 'ai-polylang-translator')));
 		}
 		$submitted_key = trim((string) wp_unslash($_POST['key'] ?? ''));
 		$key           = $submitted_key;
@@ -154,7 +195,7 @@ class AIPT_Settings {
 			$key = self::api_key();
 		}
 		if ($key === '') {
-			wp_send_json_error(array('message' => __('Ключ не задан.', 'ai-polylang-translator')));
+			wp_send_json_error(array('message' => __('No API key set.', 'ai-polylang-translator')));
 		}
 		$result = AIPT_Gateway::test_key($key);
 		if (is_wp_error($result)) {
@@ -171,50 +212,54 @@ class AIPT_Settings {
 		$key      = self::api_key();
 		?>
 		<div class="wrap aipt-settings">
-			<h1><?php esc_html_e('AI Переводчик (Polylang)', 'ai-polylang-translator'); ?></h1>
+			<h1><?php esc_html_e('AI Translator (Polylang)', 'ai-polylang-translator'); ?></h1>
 			<form method="post" action="options.php">
 				<?php settings_fields('aipt'); ?>
 
-				<h2><?php esc_html_e('API', 'ai-polylang-translator'); ?></h2>
-				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row"><label for="aipt-api-key"><?php esc_html_e('API-ключ Vercel AI Gateway', 'ai-polylang-translator'); ?></label></th>
-						<td>
-							<input type="password" id="aipt-api-key" name="aipt_api_key" value="" class="regular-text" autocomplete="new-password"
-								placeholder="<?php echo esc_attr($key !== '' ? self::mask_key($key) : __('Вставьте ключ', 'ai-polylang-translator')); ?>">
-							<span id="aipt-key-saved" class="dashicons dashicons-yes-alt aipt-key-saved"
-								title="<?php esc_attr_e('Ключ сохранён', 'ai-polylang-translator'); ?>"
-								aria-label="<?php esc_attr_e('Ключ сохранён', 'ai-polylang-translator'); ?>"
-								<?php echo $key === '' ? 'hidden' : ''; ?>></span>
-							<button type="button" class="button" id="aipt-test-key"><?php esc_html_e('Проверить ключ', 'ai-polylang-translator'); ?></button>
-							<span id="aipt-test-result"></span>
-							<p class="description">
-								<?php if ($key !== '') : ?>
-									<?php esc_html_e('Ключ сохранён. Оставьте поле пустым, чтобы не менять его. Успешная проверка нового ключа также сохраняет его.', 'ai-polylang-translator'); ?>
-								<?php else : ?>
-									<?php echo wp_kses_post(__('Получите ключ в <a href="https://vercel.com/ai-gateway" target="_blank" rel="noopener">Vercel AI Gateway</a>. Успешная проверка сохранит введённый ключ.', 'ai-polylang-translator')); ?>
-								<?php endif; ?>
-							</p>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="aipt-model"><?php esc_html_e('Модель', 'ai-polylang-translator'); ?></label></th>
-						<td>
-							<select id="aipt-model" name="aipt_settings[model]">
-								<?php foreach (self::MODELS as $id => $label) : ?>
-									<option value="<?php echo esc_attr($id); ?>" <?php selected($settings['model'], $id); ?>><?php echo esc_html($label); ?></option>
-								<?php endforeach; ?>
-							</select>
-						</td>
-					</tr>
-				</table>
+				<div class="aipt-panel">
+					<h2 class="aipt-panel-title"><?php esc_html_e('API', 'ai-polylang-translator'); ?></h2>
+					<table class="form-table" role="presentation">
+						<tr>
+							<th scope="row"><label for="aipt-api-key"><?php esc_html_e('Vercel AI Gateway API key', 'ai-polylang-translator'); ?></label></th>
+							<td>
+								<input type="password" id="aipt-api-key" name="aipt_api_key" value="" class="regular-text" autocomplete="new-password"
+									placeholder="<?php echo esc_attr($key !== '' ? self::mask_key($key) : __('Paste your key here', 'ai-polylang-translator')); ?>">
+								<span id="aipt-key-saved" class="dashicons dashicons-yes-alt aipt-key-saved"
+									title="<?php esc_attr_e('Key saved', 'ai-polylang-translator'); ?>"
+									aria-label="<?php esc_attr_e('Key saved', 'ai-polylang-translator'); ?>"
+									<?php echo $key === '' ? 'hidden' : ''; ?>></span>
+								<button type="button" class="button" id="aipt-test-key"><?php esc_html_e('Test key', 'ai-polylang-translator'); ?></button>
+								<span id="aipt-test-result"></span>
+								<p class="description">
+									<?php if ($key !== '') : ?>
+										<?php esc_html_e('Key saved. Leave the field empty to keep the existing key. A successful test with a new key also saves it.', 'ai-polylang-translator'); ?>
+									<?php else : ?>
+										<?php echo wp_kses_post(__('Get your key from <a href="https://vercel.com/ai-gateway" target="_blank" rel="noopener">Vercel AI Gateway</a>. A successful test will save the entered key.', 'ai-polylang-translator')); ?>
+									<?php endif; ?>
+								</p>
+							</td>
+						</tr>
+						<tr>
+							<th scope="row"><label for="aipt-model"><?php esc_html_e('Model', 'ai-polylang-translator'); ?></label></th>
+							<td>
+								<select id="aipt-model" name="aipt_settings[model]">
+									<?php foreach (self::models() as $id => $label) : ?>
+										<option value="<?php echo esc_attr($id); ?>" <?php selected($settings['model'], $id); ?>><?php echo esc_html($label); ?></option>
+									<?php endforeach; ?>
+								</select>
+							</td>
+						</tr>
+					</table>
+				</div>
 
-				<details class="aipt-advanced" <?php echo empty($settings['field_overrides']) ? '' : 'open'; ?>>
-					<summary><h2><?php esc_html_e('Расширенные настройки', 'ai-polylang-translator'); ?></h2></summary>
+				<?php $this->render_usage_panel(); ?>
+
+				<details class="aipt-panel aipt-advanced" <?php echo empty($settings['field_overrides']) ? '' : 'open'; ?>>
+					<summary><h2 class="aipt-panel-title"><?php esc_html_e('Advanced settings', 'ai-polylang-translator'); ?></h2></summary>
 
 					<table class="form-table" role="presentation">
 						<tr>
-							<th scope="row"><?php esc_html_e('Типы записей', 'ai-polylang-translator'); ?></th>
+							<th scope="row"><?php esc_html_e('Post types', 'ai-polylang-translator'); ?></th>
 							<td>
 								<?php foreach (get_post_types(array('public' => true), 'objects') as $pt) :
 									if ($pt->name === 'attachment') {
@@ -226,15 +271,15 @@ class AIPT_Settings {
 										<?php echo esc_html($pt->labels->name); ?> <code><?php echo esc_html($pt->name); ?></code>
 									</label><br>
 								<?php endforeach; ?>
-								<p class="description"><?php esc_html_e('Метабокс перевода появится только у выбранных типов.', 'ai-polylang-translator'); ?></p>
+								<p class="description"><?php esc_html_e('The translation metabox will only appear on the selected post types.', 'ai-polylang-translator'); ?></p>
 							</td>
 						</tr>
 						<tr>
-							<th scope="row"><label for="aipt-context"><?php esc_html_e('Контекст сайта для переводчика', 'ai-polylang-translator'); ?></label></th>
+							<th scope="row"><label for="aipt-context"><?php esc_html_e('Site context for the translator', 'ai-polylang-translator'); ?></label></th>
 							<td>
 								<textarea id="aipt-context" name="aipt_settings[site_context]" rows="2" class="large-text"
-									placeholder="<?php esc_attr_e('Например: медицинская клиника в Киеве, терминологию переводить аккуратно', 'ai-polylang-translator'); ?>"><?php echo esc_textarea($settings['site_context']); ?></textarea>
-								<p class="description"><?php esc_html_e('Добавляется в промпт — помогает модели выдерживать тематику и тон.', 'ai-polylang-translator'); ?></p>
+									placeholder="<?php esc_attr_e('E.g.: medical clinic in Kyiv — translate terminology carefully', 'ai-polylang-translator'); ?>"><?php echo esc_textarea($settings['site_context']); ?></textarea>
+								<p class="description"><?php esc_html_e('Appended to the prompt — helps the model maintain topic and tone.', 'ai-polylang-translator'); ?></p>
 							</td>
 						</tr>
 						<?php if (aipt_yoast_active()) : ?>
@@ -243,20 +288,20 @@ class AIPT_Settings {
 								<td>
 									<label>
 										<input type="checkbox" name="aipt_settings[translate_yoast]" value="1" <?php checked($settings['translate_yoast']); ?>>
-										<?php esc_html_e('Переводить SEO-заголовок, описание и фокусное слово', 'ai-polylang-translator'); ?>
+										<?php esc_html_e('Translate SEO title, description and focus keyphrase', 'ai-polylang-translator'); ?>
 									</label>
 								</td>
 							</tr>
 						<?php endif; ?>
 						<tr>
-							<th scope="row"><label for="aipt-timeout"><?php esc_html_e('Таймаут запроса, сек', 'ai-polylang-translator'); ?></label></th>
+							<th scope="row"><label for="aipt-timeout"><?php esc_html_e('Request timeout (seconds)', 'ai-polylang-translator'); ?></label></th>
 							<td><input type="number" id="aipt-timeout" name="aipt_settings[timeout]" value="<?php echo esc_attr($settings['timeout']); ?>" min="30" max="300" step="5"></td>
 						</tr>
 						<?php if (aipt_acf_active()) : ?>
 							<tr>
-								<th scope="row"><?php esc_html_e('Переводимые поля ACF', 'ai-polylang-translator'); ?></th>
+								<th scope="row"><?php esc_html_e('ACF fields to translate', 'ai-polylang-translator'); ?></th>
 								<td>
-									<p class="description"><?php esc_html_e('Отмеченные текстовые поля переводятся, остальные (картинки, числа, связи и т.д.) копируются как есть. Новые поля переводятся по умолчанию.', 'ai-polylang-translator'); ?></p>
+									<p class="description"><?php esc_html_e('Checked text fields are translated; unchecked fields (images, numbers, relationships, etc.) are copied as-is. New fields are translated by default.', 'ai-polylang-translator'); ?></p>
 									<?php echo AIPT_ACF_Schema::render_tree_html($settings['field_overrides']); // phpcs:ignore WordPress.Security.EscapeOutput ?>
 								</td>
 							</tr>
@@ -264,9 +309,115 @@ class AIPT_Settings {
 					</table>
 				</details>
 
-				<?php submit_button(__('Сохранить настройки', 'ai-polylang-translator')); ?>
+				<?php submit_button(__('Save settings', 'ai-polylang-translator')); ?>
 			</form>
+
+			<?php $this->render_models_info_panel(); ?>
 		</div>
+		<?php
+	}
+
+	// Client-facing cheat sheet: which model to pick and roughly what it costs.
+	private function render_models_info_panel(): void {
+		?>
+			<div class="aipt-panel">
+				<h2 class="aipt-panel-title"><?php esc_html_e('Which model to choose?', 'ai-polylang-translator'); ?></h2>
+				<table class="widefat striped">
+					<thead>
+						<tr>
+							<th><?php esc_html_e('Model', 'ai-polylang-translator'); ?></th>
+							<th><?php esc_html_e('Best for', 'ai-polylang-translator'); ?></th>
+							<th><?php esc_html_e('Price per article', 'ai-polylang-translator'); ?></th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach (self::model_catalog() as $model) : ?>
+						<tr>
+							<td><strong><?php echo esc_html($model['name']); ?></strong></td>
+							<td><?php echo esc_html($model['desc']); ?></td>
+							<td>~<?php echo esc_html($model['price']); ?></td>
+						</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+				<p class="description">
+					<?php esc_html_e('Prices are approximate, for a typical article of about 3,000 characters. Longer pages cost proportionally more; the exact amount for every translation is shown in the cost log above.', 'ai-polylang-translator'); ?>
+				</p>
+			</div>
+		<?php
+	}
+
+	private function render_usage_panel(): void {
+		if (!class_exists('AIPT_Usage')) {
+			return;
+		}
+		?>
+			<div class="aipt-panel">
+				<h2 class="aipt-panel-title"><?php esc_html_e('Translation costs', 'ai-polylang-translator'); ?></h2>
+				<?php
+				$totals = AIPT_Usage::totals();
+				$log    = AIPT_Usage::log();
+				?>
+				<div class="aipt-stats">
+					<div class="aipt-stat">
+						<span class="aipt-stat-label"><?php esc_html_e('Total spent', 'ai-polylang-translator'); ?></span>
+						<span class="aipt-stat-value"><?php echo esc_html(self::format_cost($totals['total_cost'])); ?></span>
+					</div>
+					<div class="aipt-stat">
+						<span class="aipt-stat-label"><?php esc_html_e('Spent today', 'ai-polylang-translator'); ?></span>
+						<span class="aipt-stat-value"><?php echo esc_html(self::format_cost($totals['day_cost'])); ?></span>
+					</div>
+					<div class="aipt-stat">
+						<span class="aipt-stat-label"><?php esc_html_e('Translations', 'ai-polylang-translator'); ?></span>
+						<span class="aipt-stat-value"><?php echo esc_html(number_format_i18n($totals['jobs'])); ?></span>
+					</div>
+				</div>
+
+				<?php if (empty($log)) : ?>
+					<p><?php esc_html_e('No translations yet. Costs will appear here after the first translation.', 'ai-polylang-translator'); ?></p>
+				<?php else : ?>
+					<table class="widefat striped">
+						<thead>
+							<tr>
+								<th><?php esc_html_e('Date', 'ai-polylang-translator'); ?></th>
+								<th><?php esc_html_e('Post', 'ai-polylang-translator'); ?></th>
+								<th><?php esc_html_e('Language', 'ai-polylang-translator'); ?></th>
+								<th><?php esc_html_e('Model', 'ai-polylang-translator'); ?></th>
+								<th><?php esc_html_e('Tokens', 'ai-polylang-translator'); ?></th>
+								<th><?php esc_html_e('Cost', 'ai-polylang-translator'); ?></th>
+							</tr>
+						</thead>
+						<tbody>
+							<?php
+							$date_format = get_option('date_format') . ' H:i';
+							$catalog     = self::model_catalog();
+							foreach ($log as $entry) :
+								$date      = wp_date($date_format, $entry['time']);
+								$edit_link = get_edit_post_link($entry['post_id']) ?: '';
+								$model_short = $catalog[$entry['model']]['name']
+									?? (strpos($entry['model'], '/') !== false
+										? substr($entry['model'], strrpos($entry['model'], '/') + 1)
+										: $entry['model']);
+							?>
+							<tr>
+								<td><?php echo esc_html($date); ?></td>
+								<td>
+									<?php if ($edit_link) : ?>
+										<a href="<?php echo esc_url($edit_link); ?>"><?php echo esc_html($entry['title']); ?></a>
+									<?php else : ?>
+										<?php echo esc_html($entry['title']); ?>
+									<?php endif; ?>
+								</td>
+								<td><?php echo esc_html(strtoupper($entry['target'])); ?></td>
+								<td><?php echo esc_html($model_short); ?></td>
+								<td><?php echo esc_html(number_format_i18n($entry['tokens_in']) . ' → ' . number_format_i18n($entry['tokens_out'])); ?></td>
+								<td><?php echo esc_html(self::format_cost($entry['cost'])); ?></td>
+							</tr>
+							<?php endforeach; ?>
+						</tbody>
+					</table>
+				<?php endif; ?>
+			</div>
 		<?php
 	}
 }

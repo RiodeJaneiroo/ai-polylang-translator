@@ -1,3 +1,69 @@
+.aipt-settings {
+	max-width: 860px;
+}
+
+/* Panel — WP postbox style */
+.aipt-panel {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	padding: 4px 20px 12px;
+	margin: 16px 0;
+	box-shadow: 0 1px 1px rgba(0, 0, 0, .04);
+}
+
+.aipt-panel-title {
+	font-size: 14px;
+	font-weight: 600;
+	padding: 8px 0 6px;
+	margin: 0 0 4px;
+	border-bottom: 1px solid #f0f0f1;
+}
+
+/* Advanced details panel */
+details.aipt-panel summary {
+	cursor: pointer;
+	list-style: none;
+}
+
+details.aipt-panel summary::-webkit-details-marker {
+	display: none;
+}
+
+details.aipt-panel summary:hover .aipt-panel-title {
+	color: #2271b1;
+}
+
+.aipt-advanced summary .aipt-panel-title {
+	display: inline-block;
+	margin: 8px 0 6px;
+}
+
+/* Cost stats row */
+.aipt-stats {
+	display: flex;
+	gap: 32px;
+	margin: 12px 0;
+}
+
+.aipt-stat {
+	display: flex;
+	flex-direction: column;
+}
+
+.aipt-stat-label {
+	font-size: 12px;
+	color: #50575e;
+	margin-bottom: 2px;
+}
+
+.aipt-stat-value {
+	font-size: 20px;
+	font-weight: 600;
+	color: #1d2327;
+}
+
+/* Existing metabox styles */
 .aipt-row {
 	padding: 8px 0;
 	border-bottom: 1px solid #eee;
@@ -48,19 +114,10 @@
 	vertical-align: top;
 }
 
-.aipt-advanced summary {
-	cursor: pointer;
-}
-
-.aipt-advanced summary h2 {
-	display: inline-block;
-	margin: 16px 0 8px;
-}
-
 .aipt-acf-group {
 	margin: 0 0 12px;
 	padding: 8px 12px;
-	background: #fff;
+	background: #f6f7f7;
 	border: 1px solid #dcdcde;
 	border-radius: 4px;
 	max-width: 720px;

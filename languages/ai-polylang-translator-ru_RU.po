@@ -1,0 +1,418 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: AI Polylang Translator 1.2.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-06-11 00:00+0000\n"
+"PO-Revision-Date: 2026-06-11 00:00+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: ru_RU\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: manual\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<12 || n%100>14) ? 1 : 2);\n"
+
+#: ai-polylang-translator.php:48
+msgid "AI Polylang Translator requires the Polylang plugin to be active."
+msgstr "AI Polylang Translator: для работы плагина требуется активный Polylang."
+
+#: includes/class-aipt-acf-schema.php:180
+msgid "No ACF field groups found."
+msgstr "Группы полей ACF не найдены."
+
+#: includes/class-aipt-acf-schema.php:203
+msgid "Copied without translation"
+msgstr "Копируется без перевода"
+
+#. translators: %d: number of keys the model failed to translate
+#: includes/class-aipt-gateway.php:74
+#, php-format
+msgid "Failed to translate %d items in this block."
+msgstr "Не удалось перевести %d из элементов блока."
+
+#: includes/class-aipt-gateway.php:96
+msgid "The model returned invalid JSON."
+msgstr "Модель вернула невалидный JSON."
+
+#: includes/class-aipt-gateway.php:118
+msgid "API key is not set. Enter it on the settings page."
+msgstr "API-ключ не задан. Укажите его в настройках."
+
+#: includes/class-aipt-gateway.php:164
+#, php-format
+msgid "Connection error with AI Gateway: %s"
+msgstr "Ошибка соединения с AI Gateway: %s"
+
+#: includes/class-aipt-gateway.php:172
+#, php-format
+msgid "AI Gateway returned error %1$d: %2$s"
+msgstr "AI Gateway вернул ошибку %1$d: %2$s"
+
+#: includes/class-aipt-gateway.php:179
+msgid "AI Gateway returned a malformed response."
+msgstr "AI Gateway вернул некорректный ответ."
+
+#: includes/class-aipt-gateway.php:190
+msgid "The model response was cut off by the token limit — try another model or reduce the amount of text."
+msgstr "Ответ модели обрезан по лимиту токенов — попробуйте другую модель или уменьшите объём текста."
+
+#: includes/class-aipt-gateway.php:193
+msgid "The model rejected the response because of a safety filter."
+msgstr "Модель отклонила ответ из-за фильтра безопасности."
+
+#: includes/class-aipt-gateway.php:199
+msgid "The model finished the request without a text response."
+msgstr "Модель завершила запрос без текстового ответа."
+
+#. translators: %s: Vercel AI Gateway generation ID
+#: includes/class-aipt-gateway.php:203
+#, php-format
+msgid "Request ID: %s."
+msgstr "ID запроса: %s."
+
+#: includes/class-aipt-settings.php:13
+msgid "Gemini 2.5 Flash Lite — ultra cheap, fastest"
+msgstr "Gemini 2.5 Flash Lite — сверхдешёвая, самая быстрая"
+
+#: includes/class-aipt-settings.php:14
+msgid "Gemini 2.5 Flash — recommended, best value for translation"
+msgstr "Gemini 2.5 Flash — рекомендуемая, лучшее соотношение цены и качества для перевода"
+
+#: includes/class-aipt-settings.php:15
+msgid "GPT-4.1 mini — balanced price and quality"
+msgstr "GPT-4.1 mini — баланс цены и качества"
+
+#: includes/class-aipt-settings.php:16
+msgid "Claude Sonnet 4.6 — premium quality (most expensive)"
+msgstr "Claude Sonnet 4.6 — премиальное качество (самая дорогая)"
+
+#: includes/class-aipt-settings.php:58 includes/class-aipt-settings.php:59
+msgid "AI Translator"
+msgstr "AI Переводчик"
+
+#: includes/class-aipt-settings.php:142
+msgid "Testing…"
+msgstr "Проверяю…"
+
+#: includes/class-aipt-settings.php:143
+msgid "Key is valid and saved"
+msgstr "Ключ работает и сохранён"
+
+#: includes/class-aipt-settings.php:151 includes/class-aipt-metabox.php:117
+msgid "Insufficient permissions."
+msgstr "Недостаточно прав."
+
+#: includes/class-aipt-settings.php:159
+msgid "No API key set."
+msgstr "Ключ не задан."
+
+#: includes/class-aipt-settings.php:176
+msgid "AI Translator (Polylang)"
+msgstr "AI Переводчик (Polylang)"
+
+#: includes/class-aipt-settings.php:181
+msgid "API"
+msgstr "API"
+
+#: includes/class-aipt-settings.php:184
+msgid "Vercel AI Gateway API key"
+msgstr "API-ключ Vercel AI Gateway"
+
+#: includes/class-aipt-settings.php:187
+msgid "Paste your key here"
+msgstr "Вставьте ключ"
+
+#: includes/class-aipt-settings.php:189 includes/class-aipt-settings.php:190
+msgid "Key saved"
+msgstr "Ключ сохранён"
+
+#: includes/class-aipt-settings.php:192
+msgid "Test key"
+msgstr "Проверить ключ"
+
+#: includes/class-aipt-settings.php:196
+msgid "Key saved. Leave the field empty to keep the existing key. A successful test with a new key also saves it."
+msgstr "Ключ сохранён. Оставьте поле пустым, чтобы не менять его. Успешная проверка нового ключа также сохраняет его."
+
+#: includes/class-aipt-settings.php:198
+msgid "Get your key from <a href=\"https://vercel.com/ai-gateway\" target=\"_blank\" rel=\"noopener\">Vercel AI Gateway</a>. A successful test will save the entered key."
+msgstr "Получите ключ в <a href=\"https://vercel.com/ai-gateway\" target=\"_blank\" rel=\"noopener\">Vercel AI Gateway</a>. Успешная проверка сохранит введённый ключ."
+
+#: includes/class-aipt-settings.php:204 includes/class-aipt-settings.php:313
+msgid "Model"
+msgstr "Модель"
+
+#: includes/class-aipt-settings.php:217
+msgid "Advanced settings"
+msgstr "Расширенные настройки"
+
+#: includes/class-aipt-settings.php:221
+msgid "Post types"
+msgstr "Типы записей"
+
+#: includes/class-aipt-settings.php:233
+msgid "The translation metabox will only appear on the selected post types."
+msgstr "Метабокс перевода появится только у выбранных типов."
+
+#: includes/class-aipt-settings.php:237
+msgid "Site context for the translator"
+msgstr "Контекст сайта для переводчика"
+
+#: includes/class-aipt-settings.php:240
+msgid "E.g.: medical clinic in Kyiv — translate terminology carefully"
+msgstr "Например: медицинская клиника в Киеве, терминологию переводить аккуратно"
+
+#: includes/class-aipt-settings.php:241
+msgid "Appended to the prompt — helps the model maintain topic and tone."
+msgstr "Добавляется в промпт — помогает модели выдерживать тематику и тон."
+
+#: includes/class-aipt-settings.php:246
+msgid "Yoast SEO"
+msgstr "Yoast SEO"
+
+#: includes/class-aipt-settings.php:250
+msgid "Translate SEO title, description and focus keyphrase"
+msgstr "Переводить SEO-заголовок, описание и фокусное слово"
+
+#: includes/class-aipt-settings.php:256
+msgid "Request timeout (seconds)"
+msgstr "Таймаут запроса, сек"
+
+#: includes/class-aipt-settings.php:261
+msgid "ACF fields to translate"
+msgstr "Переводимые поля ACF"
+
+#: includes/class-aipt-settings.php:263
+msgid "Checked text fields are translated; unchecked fields (images, numbers, relationships, etc.) are copied as-is. New fields are translated by default."
+msgstr "Отмеченные текстовые поля переводятся, остальные (картинки, числа, связи и т.д.) копируются как есть. Новые поля переводятся по умолчанию."
+
+#: includes/class-aipt-settings.php:271
+msgid "Save settings"
+msgstr "Сохранить настройки"
+
+#: includes/class-aipt-settings.php:276
+msgid "Translation costs"
+msgstr "Расходы на перевод"
+
+#: includes/class-aipt-settings.php:291
+msgid "Total spent"
+msgstr "Всего потрачено"
+
+#: includes/class-aipt-settings.php:295
+msgid "Spent today"
+msgstr "Потрачено сегодня"
+
+#: includes/class-aipt-settings.php:299
+msgid "Translations"
+msgstr "Переводов"
+
+#: includes/class-aipt-settings.php:305
+msgid "No translations yet. Costs will appear here after the first translation."
+msgstr "Переводов пока нет. Расходы появятся здесь после первого перевода."
+
+#: includes/class-aipt-settings.php:310
+msgid "Date"
+msgstr "Дата"
+
+#: includes/class-aipt-settings.php:311
+msgid "Post"
+msgstr "Запись"
+
+#: includes/class-aipt-settings.php:312
+msgid "Language"
+msgstr "Язык"
+
+#: includes/class-aipt-settings.php:314
+msgid "Tokens"
+msgstr "Токены"
+
+#: includes/class-aipt-settings.php:315
+msgid "Cost"
+msgstr "Стоимость"
+
+#: includes/class-aipt-metabox.php:21
+msgid "AI Translation"
+msgstr "AI-перевод"
+
+#: includes/class-aipt-metabox.php:43
+msgid "A translation already exists. Its current content will be replaced. Continue?"
+msgstr "Перевод уже существует. Текущий контент перевода будет заменён. Продолжить?"
+
+#: includes/class-aipt-metabox.php:44
+msgid "Preparing…"
+msgstr "Подготовка…"
+
+#. translators: %1$d: current block number, %2$d: total number of blocks
+#: includes/class-aipt-metabox.php:46
+#, php-format
+msgid "Translating… block %1$d of %2$d"
+msgstr "Перевод… блок %1$d из %2$d"
+
+#: includes/class-aipt-metabox.php:47
+msgid "Saving translation…"
+msgstr "Сохранение перевода…"
+
+#: includes/class-aipt-metabox.php:48
+msgid "Done:"
+msgstr "Готово:"
+
+#: includes/class-aipt-metabox.php:49 includes/class-aipt-metabox.php:91
+msgid "Open translation"
+msgstr "Открыть перевод"
+
+#: includes/class-aipt-metabox.php:50
+msgid "Retry"
+msgstr "Повторить"
+
+#: includes/class-aipt-metabox.php:51
+msgid "Error:"
+msgstr "Ошибка:"
+
+#: includes/class-aipt-metabox.php:58
+msgid "Save the post first."
+msgstr "Сначала сохраните запись."
+
+#. translators: %s: settings page URL
+#: includes/class-aipt-metabox.php:65
+#, php-format
+msgid "Enter an API key on the <a href=\"%s\">settings page</a>."
+msgstr "Укажите API-ключ на <a href=\"%s\">странице настроек</a>."
+
+#: includes/class-aipt-metabox.php:73
+msgid "Set the post language (Polylang) and save the post first."
+msgstr "Сначала задайте язык записи (Polylang) и сохраните её."
+
+#: includes/class-aipt-metabox.php:94
+msgid "Filled fields are kept; mismatched repeater and flexible content blocks are replaced in full."
+msgstr "Заполненные поля сохраняются; несовпавшие repeater и flexible content заменяются целиком."
+
+#: includes/class-aipt-metabox.php:96
+msgid "Safe translation"
+msgstr "Безопасный перевод"
+
+#: includes/class-aipt-metabox.php:99
+msgid "Update translation"
+msgstr "Обновить перевод"
+
+#. translators: %s: language name
+#: includes/class-aipt-metabox.php:103
+#, php-format
+msgid "Translate into %s"
+msgstr "Перевести на %s"
+
+#: includes/class-aipt-metabox.php:126 includes/class-aipt-metabox.php:297
+msgid "Translation job not found or expired. Start over."
+msgstr "Задача перевода не найдена или устарела. Начните заново."
+
+#: includes/class-aipt-metabox.php:148
+msgid "This post type is not enabled in the translation settings."
+msgstr "Этот тип записи не включён в настройках перевода."
+
+#: includes/class-aipt-metabox.php:151
+msgid "API key is not set."
+msgstr "API-ключ не задан."
+
+#: includes/class-aipt-metabox.php:162
+msgid "The post has no Polylang language set."
+msgstr "У записи не задан язык Polylang."
+
+#: includes/class-aipt-metabox.php:165
+msgid "Invalid target language."
+msgstr "Некорректный целевой язык."
+
+#: includes/class-aipt-metabox.php:170
+msgid "Insufficient permissions to modify the existing translation."
+msgstr "Недостаточно прав для изменения существующего перевода."
+
+#: includes/class-aipt-metabox.php:173
+msgid "Insufficient permissions to create a translation."
+msgstr "Недостаточно прав для создания перевода."
+
+#: includes/class-aipt-metabox.php:181
+msgid "A translation already exists — overwrite confirmation is required."
+msgstr "Перевод уже существует — требуется подтверждение перезаписи."
+
+#: includes/class-aipt-metabox.php:187
+msgid "The post has no text to translate."
+msgstr "В записи нет текста для перевода."
+
+#: includes/class-aipt-metabox.php:226
+msgid "Could not save the translation job — the payload is too large. Contact an administrator."
+msgstr "Не удалось сохранить задачу перевода — слишком большой объём данных. Обратитесь к администратору."
+
+#: includes/class-aipt-metabox.php:239
+msgid "Unknown translation block."
+msgstr "Неизвестный блок перевода."
+
+#: includes/class-aipt-metabox.php:266
+msgid "Could not save the translation result — the payload is too large. Contact an administrator."
+msgstr "Не удалось сохранить результат перевода — слишком большой объём данных. Обратитесь к администратору."
+
+#: includes/class-aipt-metabox.php:286
+msgid "Not all blocks are translated — finalization is not possible."
+msgstr "Не все блоки переведены — завершение невозможно."
+
+#: includes/class-aipt-metabox.php:290
+msgid "The translation is already being saved. Try again in a few seconds."
+msgstr "Перевод уже сохраняется. Повторите запрос через несколько секунд."
+
+#: includes/class-aipt-metabox.php:344
+msgid "The saved translation was not found. Start the translation over."
+msgstr "Сохранённый перевод не найден. Начните перевод заново."
+
+#: includes/class-aipt-writer.php:18
+msgid "Source post not found."
+msgstr "Исходная запись не найдена."
+
+#: includes/class-aipt-writer.php:28
+msgid "A translation into this language was created after the job was prepared. Please start the translation again."
+msgstr "Перевод на этот язык появился уже после подготовки. Начните перевод заново."
+
+#: includes/class-aipt-writer.php:31
+msgid "The prepared translation post was deleted. Please start the translation again."
+msgstr "Подготовленный перевод был удалён. Начните перевод заново."
+
+#: includes/class-aipt-writer.php:35
+msgid "You do not have permission to edit the existing translation."
+msgstr "Недостаточно прав для изменения существующего перевода."
+
+#: includes/class-aipt-writer.php:40
+msgid "You do not have permission to create a translation."
+msgstr "Недостаточно прав для создания перевода."
+
+#: includes/class-aipt-writer.php:78
+msgid "Translation is incomplete — some text parts are missing."
+msgstr "Перевод не завершён — отсутствуют части текста."
+
+#: includes/class-aipt-settings.php
+msgid "Which model to choose?"
+msgstr "Какую модель выбрать?"
+
+#: includes/class-aipt-settings.php
+msgid "Best for"
+msgstr "Для чего подходит"
+
+#: includes/class-aipt-settings.php
+msgid "Price per article"
+msgstr "Цена за статью"
+
+#: includes/class-aipt-settings.php
+msgid "The fastest and cheapest. A good fit when you translate a lot of pages at once."
+msgstr "Самая быстрая и дешёвая. Хороший выбор, когда нужно перевести сразу много страниц."
+
+#: includes/class-aipt-settings.php
+msgid "Recommended default: excellent quality at a low price."
+msgstr "Рекомендуемая по умолчанию: отличное качество по низкой цене."
+
+#: includes/class-aipt-settings.php
+msgid "A solid alternative with balanced price and quality."
+msgstr "Надёжная альтернатива с балансом цены и качества."
+
+#: includes/class-aipt-settings.php
+msgid "Maximum accuracy — for important pages where every word matters."
+msgstr "Максимальная точность — для важных страниц, где значимо каждое слово."
+
+#: includes/class-aipt-settings.php
+msgid "Prices are approximate, for a typical article of about 3,000 characters. Longer pages cost proportionally more; the exact amount for every translation is shown in the cost log above."
+msgstr "Цены ориентировочные, из расчёта типичной статьи около 3 000 знаков. Длинные страницы стоят пропорционально дороже; точная сумма каждого перевода видна в журнале расходов выше."

@@ -1,6 +1,6 @@
 <?php
 // WP-CLI commands: `wp aipt translate` (bulk post translation through AIPT_Pipeline)
-// and `wp aipt translate-terms` (taxonomy names/descriptions through AIPT_Gateway).
+// and `wp aipt translate-terms` (taxonomy names/descriptions through AIPT_Terms).
 // Output is English only; the TSV log gets one line per record plus a summary.
 
 if (!defined('ABSPATH')) {
@@ -12,15 +12,10 @@ if (!defined('ABSPATH')) {
  */
 class AIPT_CLI {
 
-	private $log      = null;
-	private $counts   = array();
-	private $cost     = 0.0;
-	private $chars    = 0;
-	private $started  = 0;
-	private $dry_run  = false;
+	private $log     = null;
 	// Dry run: target language => source IDs a real run would create, so their
 	// children are not reported as skipped_parent_missing.
-	private $planned  = array();
+	private $planned = array();
 
 	/**
 	 * Translate posts into other Polylang languages.
@@ -101,72 +96,31 @@ class AIPT_CLI {
 	 *     $ wp aipt translate --ids=12,34 --to=en --mode=safe --log=/var/log/aipt/refresh.tsv --user=admin
 	 */
 	public function translate($args, $assoc_args) {
-		$this->dry_run = (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'dry-run', false);
-		list($from, $targets) = $this->languages($assoc_args);
-		$this->require_user();
-
-		$enabled = array_values(array_filter(
-			AIPT_Settings::get()['post_types'],
-			static fn(string $type): bool => post_type_exists($type) && pll_is_translated_post_type($type)
-		));
-		$has_types = isset($assoc_args['post_type']) && $assoc_args['post_type'] !== '';
-		$has_ids   = isset($assoc_args['ids']) && $assoc_args['ids'] !== '';
-		if ($has_types === $has_ids) {
-			WP_CLI::error('Pass either --post_type or --ids (exactly one of them).');
-		}
-
-		$ids   = array();
-		$types = $enabled;
-		if ($has_types) {
-			$types = self::csv($assoc_args['post_type']);
-			foreach ($types as $type) {
-				if (!in_array($type, $enabled, true)) {
-					WP_CLI::error(sprintf("Post type '%s' is not enabled in Settings > AI Translator (or not translated by Polylang).", $type));
-				}
-			}
-		} else {
-			$ids = array_values(array_filter(array_map('absint', self::csv($assoc_args['ids']))));
-			if (!$ids) {
-				WP_CLI::error('--ids contains no valid post IDs.');
-			}
-		}
-		if (!$types) {
-			WP_CLI::error('No post types are enabled in Settings > AI Translator.');
-		}
-
-		$mode = (string) ($assoc_args['mode'] ?? '');
-		if ($mode !== '' && isset($assoc_args['skip-existing'])) {
-			WP_CLI::error('--skip-existing and --mode are mutually exclusive.');
-		}
-		if ($mode !== '' && !in_array($mode, array('safe', 'overwrite'), true)) {
-			WP_CLI::error('--mode must be safe or overwrite.');
-		}
+		$dry_run = (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'dry-run', false);
+		list($from, $targets) = AIPT_CLI_Args::languages($assoc_args);
+		AIPT_CLI_Args::require_user();
+		list($types, $ids) = AIPT_CLI_Args::post_selection($assoc_args);
+		$mode = AIPT_CLI_Args::mode($assoc_args);
 
 		$publish = (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'publish', false);
 		if ($publish) {
-			foreach ($types as $type) {
-				$object = get_post_type_object($type);
-				if (!$object || !current_user_can($object->cap->publish_posts)) {
-					WP_CLI::error(sprintf("The current user cannot publish '%s' posts.", $type));
-				}
-			}
+			AIPT_CLI_Args::require_publish_caps($types);
 		}
 
 		$opts = array(
-			'mode'        => $mode,
-			'post_status' => $publish ? 'publish' : 'draft',
-			'keep_date'   => (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'keep-date', false),
+			'mode'          => $mode,
+			'skip_existing' => $mode === '',
+			'post_status'   => $publish ? 'publish' : 'draft',
+			'keep_date'     => (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'keep-date', false),
 		);
-		$statuses = array_map('sanitize_key', self::csv($assoc_args['post_status'] ?? 'publish'));
-		$after    = self::date_arg($assoc_args, 'after');
-		$shard    = self::shard_arg($assoc_args);
+		$statuses = array_map('sanitize_key', AIPT_CLI_Args::csv($assoc_args['post_status'] ?? 'publish'));
+		$after    = AIPT_CLI_Args::date($assoc_args, 'after');
+		$shard    = AIPT_CLI_Args::shard($assoc_args);
 		$limit    = isset($assoc_args['limit']) ? absint($assoc_args['limit']) : 0;
-		$price    = $this->price_per_char();
+		$price    = AIPT_Settings::price_per_char();
 
-		if (!$this->dry_run && AIPT_Settings::api_key() === '') {
-			WP_CLI::error('API key is not set (Settings > AI Translator).');
-		}
-		$this->open_log($assoc_args, 'translate');
+		AIPT_CLI_Args::require_api_key($dry_run);
+		$this->log = new AIPT_CLI_Log($assoc_args, 'translate', $dry_run);
 
 		$selected = $this->select_posts($types, $statuses, $from, $after, $ids, $shard);
 		if ($ids && count($selected) < count($ids)) {
@@ -189,18 +143,18 @@ class AIPT_CLI {
 					break 2;
 				}
 				$position++;
-				$outcome = $this->dry_run
+				$outcome = $dry_run
 					? $this->dry_run_post($post_id, $target, $from, $opts, $price)
 					: $this->process_post($post_id, $target, $from, $opts);
 				if ($outcome['api']) {
 					$processed++;
 				}
-				$this->record(sprintf('[%d/%d] post', $position, $total), $post_id, $target, $outcome);
+				$this->log->record(sprintf('[%d/%d] post', $position, $total), $post_id, $target, $outcome);
 			}
 			$this->free_memory();
 		}
 
-		$this->finish();
+		$this->log->finish();
 	}
 
 	/**
@@ -245,29 +199,15 @@ class AIPT_CLI {
 	 * @subcommand translate-terms
 	 */
 	public function translate_terms($args, $assoc_args) {
-		$this->dry_run = (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'dry-run', false);
-		list($from, $targets) = $this->languages($assoc_args);
-		$this->require_user();
+		$dry_run = (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'dry-run', false);
+		list($from, $targets) = AIPT_CLI_Args::languages($assoc_args);
+		AIPT_CLI_Args::require_user();
+		$taxonomies = AIPT_CLI_Args::taxonomies($assoc_args);
 
-		$taxonomies = self::csv($assoc_args['taxonomy'] ?? '');
-		if (!$taxonomies) {
-			WP_CLI::error('--taxonomy is required.');
-		}
-		foreach ($taxonomies as $taxonomy) {
-			if (!taxonomy_exists($taxonomy) || !pll_is_translated_taxonomy($taxonomy)) {
-				WP_CLI::error(sprintf("Taxonomy '%s' does not exist or is not translated by Polylang.", $taxonomy));
-			}
-			if (!current_user_can(get_taxonomy($taxonomy)->cap->edit_terms)) {
-				WP_CLI::error(sprintf("The current user cannot edit '%s' terms.", $taxonomy));
-			}
-		}
-
-		$since = self::date_arg($assoc_args, 'only-used-since');
-		$price = $this->price_per_char();
-		if (!$this->dry_run && AIPT_Settings::api_key() === '') {
-			WP_CLI::error('API key is not set (Settings > AI Translator).');
-		}
-		$this->open_log($assoc_args, 'translate-terms');
+		$since = AIPT_CLI_Args::date($assoc_args, 'only-used-since');
+		$price = AIPT_Settings::price_per_char();
+		AIPT_CLI_Args::require_api_key($dry_run);
+		$this->log = new AIPT_CLI_Log($assoc_args, 'translate-terms', $dry_run);
 		if (function_exists('set_time_limit')) {
 			set_time_limit(0);
 		}
@@ -276,12 +216,14 @@ class AIPT_CLI {
 			$terms = $this->source_terms($taxonomy, $from, $since);
 			WP_CLI::log(sprintf('%s: %d source terms in %s.', $taxonomy, count($terms), $from));
 			foreach ($targets as $target) {
-				$this->translate_terms_into($taxonomy, $terms, $from, $target, $price);
+				AIPT_Terms::translate($taxonomy, $terms, $from, $target, $dry_run ? $price : null, function (array $row) use ($taxonomy, $target): void {
+					$this->record_term($taxonomy, $row['term'], $target, $row);
+				});
 			}
 			$this->free_memory();
 		}
 
-		$this->finish();
+		$this->log->finish();
 	}
 
 	// ---- Posts ----------------------------------------------------------------
@@ -357,51 +299,42 @@ class AIPT_CLI {
 			set_time_limit(0);
 		}
 		try {
-			$check = $this->precheck_post($post_id, $target, $from, $opts['mode']);
+			$check = $this->precheck($post_id, $target, $from, $opts);
 			if ($check['status'] !== '') {
 				return $check;
 			}
 
-			if (!AIPT_Job::acquire_pair_lock($post_id, $target, AIPT_Pipeline::CLI_PAIR_LOCK_TTL, 'cli')) {
-				$holder = AIPT_Job::pair_lock_holder($post_id, $target);
-				return self::outcome('skipped_locked', 0, 0.0, 'pair is locked' . ($holder !== '' ? ' by ' . $holder : ''));
-			}
-			try {
-				// Re-check under the lock: the editor or another run may have created it.
-				$this->free_memory();
-				$existing = (int) (pll_get_post($post_id, $target) ?: 0);
-				if ($existing && $opts['mode'] === '') {
-					return self::outcome('skipped_existing', $existing);
+			$this->free_memory();
+			$status = $this->new_post_status($post_id, $opts);
+			// Takes the pair lock and re-checks the existing translation under it.
+			$result = AIPT_Pipeline::translate_post($post_id, $target, array(
+				'mode'          => $opts['mode'] !== '' ? $opts['mode'] : 'overwrite',
+				'skip_existing' => $opts['skip_existing'],
+				'holder'        => 'cli',
+				'post_status'   => $status,
+				'keep_date'     => $opts['keep_date'],
+			));
+			if (is_wp_error($result)) {
+				if ($result->get_error_code() === 'aipt_pair_locked') {
+					$holder = (string) ($result->get_error_data()['holder'] ?? '');
+					return AIPT_Record::outcome('skipped_locked', 0, 0.0, 'pair is locked' . ($holder !== '' ? ' by ' . $holder : ''));
 				}
-
-				$status = $this->new_post_status($post_id, $opts);
-				$note   = !$existing && $status !== $opts['post_status']
-					? sprintf('status %s instead of %s (source is %s)', $status, $opts['post_status'], get_post_status($post_id))
-					: '';
-
-				$result = AIPT_Pipeline::translate_post($post_id, $target, array(
-					'mode'        => $opts['mode'] !== '' ? $opts['mode'] : 'overwrite',
-					'post_status' => $status,
-					'keep_date'   => $opts['keep_date'],
-					'pair_locked' => true,
-				));
-				if (is_wp_error($result)) {
-					$usage = (array) $result->get_error_data('aipt_usage');
-					return self::outcome(
-						'error',
-						0,
-						(float) ($usage['cost'] ?? 0),
-						$result->get_error_message(),
-						!empty($usage['api_calls'])
-					);
-				}
-				$message = trim($note . ($result['warning'] !== '' ? ' ' . $result['warning'] : ''));
-				return self::outcome($result['status'], (int) $result['target_id'], (float) $result['cost'], $message, $result['api_calls'] > 0);
-			} finally {
-				AIPT_Job::release_pair_lock($post_id, $target);
+				$usage = (array) $result->get_error_data('aipt_usage');
+				return AIPT_Record::outcome(
+					'error',
+					0,
+					(float) ($usage['cost'] ?? 0),
+					$result->get_error_message(),
+					!empty($usage['api_calls'])
+				);
 			}
+			$note    = str_starts_with($result['status'], 'created') && $status !== $opts['post_status']
+				? sprintf('status %s instead of %s (source is %s)', $status, $opts['post_status'], get_post_status($post_id))
+				: '';
+			$message = trim($note . ($result['warning'] !== '' ? ' ' . $result['warning'] : ''));
+			return AIPT_Record::outcome($result['status'], (int) $result['target_id'], (float) $result['cost'], $message, $result['api_calls'] > 0);
 		} catch (Throwable $e) {
-			return self::outcome('error', 0, 0.0, get_class($e) . ': ' . $e->getMessage(), true);
+			return AIPT_Record::outcome('error', 0, 0.0, get_class($e) . ': ' . $e->getMessage(), true);
 		}
 	}
 
@@ -425,64 +358,36 @@ class AIPT_CLI {
 	}
 
 	// Status '' means the record should be translated; target_id holds the existing translation.
-	private function precheck_post(int $post_id, string $target, string $from, string $mode): array {
-		$post = get_post($post_id);
-		if (!$post) {
-			return self::outcome('error', 0, 0.0, 'source post not found');
+	private function precheck(int $post_id, string $target, string $from, array $opts): array {
+		$check = AIPT_Record::check_source($post_id, $target, $from, $opts['skip_existing']);
+		if ($check['status'] !== '') {
+			return $check;
 		}
-		$language = (string) pll_get_post_language($post_id);
-		if ($language !== $from) {
-			return self::outcome('error', 0, 0.0, sprintf("source language is '%s', expected '%s'", $language, $from));
+		$existing = (int) $check['target_id'];
+		$post     = get_post($post_id);
+
+		// A dry run counts the parents it would create as translated.
+		$parent = $existing ? 0 : AIPT_Record::missing_parent($post, $target);
+		if ($parent && !isset($this->planned[$target][$parent])) {
+			return AIPT_Record::outcome('skipped_parent_missing', 0, 0.0, sprintf('parent #%d has no %s translation', $parent, $target));
 		}
 
-		$existing = (int) (pll_get_post($post_id, $target) ?: 0);
-		if ($existing && $mode === '') {
-			return self::outcome('skipped_existing', $existing);
+		$terms = AIPT_Record::translated_terms($post_id, $post->post_type);
+		// Safe mode keeps the terms of a translation that already has some.
+		if ($existing && $opts['mode'] === 'safe') {
+			$terms = array_diff_key($terms, AIPT_Record::translated_terms($existing, $post->post_type));
 		}
-		// The writer would otherwise create the child at the root.
-		if (!$existing && $post->post_parent && !pll_get_post($post->post_parent, $target)
-			&& !isset($this->planned[$target][(int) $post->post_parent])) {
-			return self::outcome('skipped_parent_missing', 0, 0.0, sprintf('parent #%d has no %s translation', $post->post_parent, $target));
-		}
-
-		$missing = $this->missing_terms($post, $target, $existing, $mode);
+		$missing = AIPT_Record::missing_terms($terms, $target);
 		if ($missing) {
-			return self::outcome('skipped_missing_terms', $existing, 0.0, 'untranslated terms: ' . implode(',', $missing));
+			return AIPT_Record::outcome('skipped_missing_terms', $existing, 0.0, 'untranslated terms: ' . AIPT_Record::describe_terms($missing));
 		}
-		return self::outcome('', $existing);
-	}
-
-	// Terms the writer would silently drop (copy_taxonomies maps them via pll_get_term).
-	private function missing_terms(WP_Post $post, string $target, int $existing, string $mode): array {
-		$missing = array();
-		foreach (get_object_taxonomies($post->post_type) as $taxonomy) {
-			if (!pll_is_translated_taxonomy($taxonomy)) {
-				continue;
-			}
-			// Safe mode keeps the terms of a translation that already has some.
-			if ($existing && $mode === 'safe') {
-				$current = wp_get_object_terms($existing, $taxonomy, array('fields' => 'ids'));
-				if (!is_wp_error($current) && $current) {
-					continue;
-				}
-			}
-			$terms = wp_get_object_terms($post->ID, $taxonomy, array('fields' => 'ids'));
-			if (is_wp_error($terms)) {
-				continue;
-			}
-			foreach ($terms as $term_id) {
-				if (!pll_get_term((int) $term_id, $target)) {
-					$missing[] = $taxonomy . ':' . (int) $term_id;
-				}
-			}
-		}
-		return $missing;
+		return AIPT_Record::outcome('', $existing);
 	}
 
 	private function dry_run_post(int $post_id, string $target, string $from, array $opts, float $price): array {
 		$mode = $opts['mode'];
 		try {
-			$check = $this->precheck_post($post_id, $target, $from, $mode);
+			$check = $this->precheck($post_id, $target, $from, $opts);
 			if ($check['status'] !== '') {
 				return $check;
 			}
@@ -490,31 +395,31 @@ class AIPT_CLI {
 			$safe     = $existing && $mode === 'safe';
 			$extract  = AIPT_Extractor::extract($post_id, $existing, $safe);
 			if (!$extract['items'] && !$safe) {
-				return self::outcome('error', 0, 0.0, 'no text to translate');
+				return AIPT_Record::outcome('error', 0, 0.0, 'no text to translate');
 			}
 
 			$chars = 0;
 			foreach ($extract['items'] as $item) {
 				$chars += mb_strlen($item['text'], 'UTF-8');
 			}
-			$this->chars += $chars;
 			if (!$existing) {
 				$this->planned[$target][$post_id] = true;
 			}
-			$outcome = self::outcome(
+			$outcome = AIPT_Record::outcome(
 				$existing ? 'would_update' : 'would_create',
 				$existing,
 				$price * $chars,
 				sprintf('%d chars (%s)', $chars, $existing ? $mode . ' mode' : 'new, status ' . $this->new_post_status($post_id, $opts)),
 				$chars > 0
 			);
-			$holder = AIPT_Job::pair_lock_holder($post_id, $target);
+			$outcome['chars'] = $chars;
+			$holder           = AIPT_Job::pair_lock_holder($post_id, $target);
 			if ($holder !== '') {
 				$outcome['message'] .= ', pair currently locked by ' . $holder;
 			}
 			return $outcome;
 		} catch (Throwable $e) {
-			return self::outcome('error', 0, 0.0, get_class($e) . ': ' . $e->getMessage());
+			return AIPT_Record::outcome('error', 0, 0.0, get_class($e) . ': ' . $e->getMessage());
 		}
 	}
 
@@ -544,26 +449,11 @@ class AIPT_CLI {
 		}
 
 		if ($since !== '') {
-			$keep = array();
-			foreach ($this->terms_used_since($taxonomy, $since) as $term_id) {
-				if (!isset($by_id[$term_id])) {
-					continue;
-				}
-				$keep[$term_id] = true;
-				// Ancestors keep the hierarchy intact even when only a child is used.
-				foreach (get_ancestors($term_id, $taxonomy, 'taxonomy') as $ancestor) {
-					$keep[(int) $ancestor] = true;
-				}
-			}
-			$by_id = array_intersect_key($by_id, $keep);
+			// Ancestors keep the hierarchy intact even when only a child is used.
+			$used = array_intersect(array_keys($by_id), $this->terms_used_since($taxonomy, $since));
+			return AIPT_Terms::with_ancestors($taxonomy, $used, $from);
 		}
-
-		$depth = array();
-		foreach ($by_id as $term_id => $term) {
-			$depth[$term_id] = $term->parent ? count(get_ancestors($term_id, $taxonomy, 'taxonomy')) : 0;
-		}
-		uksort($by_id, static fn(int $a, int $b): int => array($depth[$a], $a) <=> array($depth[$b], $b));
-		return array_values($by_id);
+		return AIPT_Terms::parents_first($taxonomy, $by_id);
 	}
 
 	// Source-language terms are attached only to source-language posts, so the
@@ -584,422 +474,18 @@ class AIPT_CLI {
 		return array_map('intval', $ids);
 	}
 
-	private function translate_terms_into(string $taxonomy, array $terms, string $from, string $target, float $price): void {
-		$pending = array();
-		foreach ($terms as $term) {
-			$existing = (int) (pll_get_term($term->term_id, $target) ?: 0);
-			if ($existing) {
-				$this->record_term($taxonomy, $term, $target, self::outcome('skipped_existing', $existing));
-				continue;
-			}
-			$pending[(int) $term->term_id] = $term;
-		}
-		if (!$pending) {
-			return;
-		}
-
-		$items = array();
-		foreach ($pending as $term_id => $term) {
-			if (AIPT_Extractor::is_translatable($term->name)) {
-				$items['t' . $term_id . 'n'] = array('id' => 't' . $term_id . 'n', 'text' => $term->name, 'term_id' => $term_id);
-			}
-			if (AIPT_Extractor::is_translatable($term->description)) {
-				$items['t' . $term_id . 'd'] = array('id' => 't' . $term_id . 'd', 'text' => $term->description, 'term_id' => $term_id);
-			}
-		}
-
-		if ($this->dry_run) {
-			$this->dry_run_terms($taxonomy, $pending, $items, $target, $price);
-			return;
-		}
-
-		$translated = array();
-		$failed     = array();
-		$term_cost  = array();
-		$model      = AIPT_Settings::get()['model'];
-		$job_id     = wp_generate_uuid4();
-		$job_meta   = array(
-			'post_id' => 0,
-			'target'  => $target,
-			'model'   => $model,
-			/* translators: %s: taxonomy name, e.g. "Categories" */
-			'title'   => sprintf(__('Terms: %s', 'ai-polylang-translator'), get_taxonomy($taxonomy)->labels->name),
-		);
-		$source_name = AIPT_Pipeline::language_name($from);
-		$target_name = AIPT_Pipeline::language_name($target);
-
-		foreach (AIPT_Extractor::build_batches(array_values($items)) as $keys) {
-			$map = array();
-			$ids = array();
-			foreach ($keys as $key) {
-				$map[$key] = $items[$key]['text'];
-				$ids[$items[$key]['term_id']] = true;
-			}
-
-			$result = AIPT_Gateway::translate_map($map, $source_name, $target_name, $model);
-			// Billed even when the reply is rejected: record before looking at the result.
-			$usage = AIPT_Gateway::get_usage();
-			if ($usage['tokens_in'] || $usage['tokens_out'] || $usage['cost']) {
-				AIPT_Usage::record_job_usage($job_meta, $job_id, $usage);
-			}
-			foreach (array_keys($ids) as $term_id) {
-				$term_cost[$term_id] = ($term_cost[$term_id] ?? 0.0) + (float) $usage['cost'] / count($ids);
-			}
-
-			if (is_wp_error($result)) {
-				foreach (array_keys($ids) as $term_id) {
-					$failed[$term_id] = $result->get_error_message();
-				}
-				continue;
-			}
-			$translated += $result;
-		}
-
-		foreach ($pending as $term_id => $term) {
-			if (isset($failed[$term_id])) {
-				$outcome = self::outcome('error', 0, 0.0, 'translation failed: ' . $failed[$term_id]);
-			} else {
-				$name        = (string) ($translated['t' . $term_id . 'n'] ?? $term->name);
-				$description = (string) ($translated['t' . $term_id . 'd'] ?? $term->description);
-				$outcome     = $this->create_term($term, $taxonomy, $from, $target, $name, $description);
-			}
-			$outcome['cost'] = $term_cost[$term_id] ?? 0.0;
-			$this->record_term($taxonomy, $term, $target, $outcome);
-		}
-	}
-
-	private function dry_run_terms(string $taxonomy, array $pending, array $items, string $target, float $price): void {
-		foreach ($pending as $term_id => $term) {
-			if ($term->parent && !isset($pending[(int) $term->parent]) && !pll_get_term($term->parent, $target)) {
-				$this->record_term($taxonomy, $term, $target, self::outcome('skipped_parent_missing', 0, 0.0, sprintf('parent term #%d has no %s translation', $term->parent, $target)));
-				continue;
-			}
-			$chars = 0;
-			foreach (array('n', 'd') as $part) {
-				if (isset($items['t' . $term_id . $part])) {
-					$chars += mb_strlen($items['t' . $term_id . $part]['text'], 'UTF-8');
-				}
-			}
-			$this->chars += $chars;
-			$this->record_term($taxonomy, $term, $target, self::outcome('would_create', 0, $price * $chars, sprintf('%d chars', $chars)));
-		}
-	}
-
-	private function create_term(WP_Term $term, string $taxonomy, string $from, string $target, string $name, string $description): array {
-		try {
-			$parent = 0;
-			if ($term->parent) {
-				$parent = (int) (pll_get_term($term->parent, $target) ?: 0);
-				if (!$parent) {
-					return self::outcome('skipped_parent_missing', 0, 0.0, sprintf('parent term #%d has no %s translation', $term->parent, $target));
-				}
-			}
-			// Another run may have created it since the list was built.
-			$existing = (int) (pll_get_term($term->term_id, $target) ?: 0);
-			if ($existing) {
-				return self::outcome('skipped_existing', $existing);
-			}
-
-			$desired = AIPT_Slug::from_title($name);
-			if ($desired === '') {
-				$desired = $term->slug;
-			}
-			$slug   = AIPT_Slug::for_term($desired, $target, $taxonomy, $parent);
-			$result = self::insert_term($name, $taxonomy, $slug, $parent, $description);
-			$status = 'created';
-			$new_id = 0;
-
-			if (is_wp_error($result) && $result->get_error_code() === 'term_exists') {
-				$found = (int) $result->get_error_data();
-				// Link a same-named term only if it is an unlinked term of the target
-				// language — never the source term or a term of another language.
-				if ($found
-					&& $found !== (int) $term->term_id
-					&& pll_get_term_language($found) === $target
-					&& !pll_get_term($found, $from)) {
-					$new_id = $found;
-					$status = 'linked';
-				} else {
-					$suffixed = AIPT_Slug::with_lang($desired, $target);
-					if ($suffixed !== $slug) {
-						$result = self::insert_term($name, $taxonomy, $suffixed, $parent, $description);
-					}
-					if (is_wp_error($result)) {
-						return self::outcome('error', 0, 0.0, sprintf('%s (existing term #%d)', $result->get_error_message(), $found));
-					}
-				}
-			}
-			if (!$new_id) {
-				if (is_wp_error($result)) {
-					return self::outcome('error', 0, 0.0, $result->get_error_message());
-				}
-				$new_id = (int) $result['term_id'];
-			}
-
-			pll_set_term_language($new_id, $target);
-			$translations          = pll_get_term_translations($term->term_id);
-			$translations[$from]   = (int) $term->term_id;
-			$translations[$target] = $new_id;
-			pll_save_term_translations($translations);
-
-			return self::outcome($status, $new_id, 0.0, $name);
-		} catch (Throwable $e) {
-			return self::outcome('error', 0, 0.0, get_class($e) . ': ' . $e->getMessage());
-		}
-	}
-
-	/**
-	 * @return array|WP_Error
-	 */
-	private static function insert_term(string $name, string $taxonomy, string $slug, int $parent, string $description) {
-		$term_args = array(
-			'parent'      => $parent,
-			'description' => wp_slash($description),
-		);
-		if ($slug !== '') {
-			$term_args['slug'] = $slug;
-		}
-		return wp_insert_term(wp_slash($name), $taxonomy, $term_args);
-	}
-
 	private function record_term(string $taxonomy, WP_Term $term, string $target, array $outcome): void {
 		$label = $taxonomy . ' "' . html_entity_decode($term->name, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '"';
 		$outcome['message'] = trim($label . ' ' . $outcome['message']);
-		$this->record('term', (int) $term->term_id, $target, $outcome);
+		$this->log->record('term', (int) $term->term_id, $target, $outcome);
 	}
 
 	// ---- Shared ---------------------------------------------------------------
 
-	private function languages(array $assoc_args): array {
-		$languages = pll_languages_list();
-		$from      = (string) ($assoc_args['from'] ?? pll_default_language());
-		if (!in_array($from, $languages, true)) {
-			WP_CLI::error(sprintf("Unknown source language '%s'. Available: %s.", $from, implode(', ', $languages)));
-		}
-		$targets = array_values(array_unique(self::csv($assoc_args['to'] ?? '')));
-		if (!$targets) {
-			WP_CLI::error('--to is required.');
-		}
-		foreach ($targets as $target) {
-			if (!in_array($target, $languages, true)) {
-				WP_CLI::error(sprintf("Unknown target language '%s'. Available: %s.", $target, implode(', ', $languages)));
-			}
-			if ($target === $from) {
-				WP_CLI::error(sprintf("Target language '%s' is the source language.", $target));
-			}
-		}
-		return array($from, $targets);
-	}
-
-	private function require_user(): void {
-		if (!get_current_user_id()) {
-			WP_CLI::error('No current user. Pass --user=<login>: capabilities are checked when writing translations.');
-		}
-	}
-
-	// Catalog prices are USD per ~3,000-character article.
-	private function price_per_char(): float {
-		$settings = AIPT_Settings::get();
-		$catalog  = AIPT_Settings::model_catalog();
-		$price    = (string) ($catalog[$settings['model']]['price'] ?? '0');
-		return (float) preg_replace('/[^0-9.]/', '', $price) / 3000;
-	}
-
-	private function open_log(array $assoc_args, string $command): void {
-		$path = trim((string) ($assoc_args['log'] ?? ''));
-		if ($path === '') {
-			if (!$this->dry_run) {
-				WP_CLI::error('--log=<path> is required (unless --dry-run).');
-			}
-			$this->begin($command, $assoc_args);
-			return;
-		}
-
-		$dir = realpath(dirname($path));
-		if ($dir === false || !is_dir($dir)) {
-			WP_CLI::error(sprintf('Log directory does not exist: %s', dirname($path)));
-		}
-		$file = wp_normalize_path($dir) . '/' . basename($path);
-		$real = file_exists($file) ? wp_normalize_path((string) realpath($file)) : $file;
-		foreach (self::public_roots() as $root) {
-			foreach (array($file, $real) as $candidate) {
-				if ($candidate === $root || str_starts_with($candidate, $root . '/')) {
-					WP_CLI::error(sprintf('--log must point outside %s (the log could be publicly readable there).', $root));
-				}
-			}
-		}
-
-		$handle = fopen($file, 'ab');
-		if (!$handle) {
-			WP_CLI::error(sprintf('Cannot open the log file for writing: %s', $file));
-		}
-		$this->log = $handle;
-		$this->begin($command, $assoc_args);
-	}
-
-	// Directories that may be web-served: ABSPATH, WP_CONTENT_DIR and, when WordPress
-	// lives in a subdirectory (Bedrock-style content dir outside ABSPATH, or a home URL
-	// that differs from the site URL), the directory above ABSPATH too.
-	private static function public_roots(): array {
-		$abspath = self::real_dir(ABSPATH);
-		$content = defined('WP_CONTENT_DIR') ? self::real_dir(WP_CONTENT_DIR) : '';
-		$roots   = array($abspath, $content);
-
-		$content_outside = $content !== '' && $abspath !== ''
-			&& $content !== $abspath && !str_starts_with($content, $abspath . '/');
-		$home_differs    = untrailingslashit((string) wp_parse_url(home_url(), PHP_URL_PATH))
-			!== untrailingslashit((string) wp_parse_url(site_url(), PHP_URL_PATH));
-		if ($abspath !== '' && ($content_outside || $home_differs)) {
-			$roots[] = self::real_dir(dirname($abspath));
-		}
-		return array_values(array_unique(array_filter($roots, static fn(string $root): bool => $root !== '' && $root !== '/')));
-	}
-
-	private static function real_dir(string $path): string {
-		$real = realpath($path);
-		return $real === false ? '' : untrailingslashit(wp_normalize_path($real));
-	}
-
-	private function begin(string $command, array $assoc_args): void {
-		$this->started = time();
-		$flags         = array();
-		foreach ($assoc_args as $key => $value) {
-			$flags[] = $value === true ? '--' . $key : '--' . $key . '=' . $value;
-		}
-		$this->write_log_line(sprintf(
-			'# %s wp aipt %s %s (user #%d, pid %d)',
-			wp_date('c'),
-			$command,
-			implode(' ', $flags),
-			get_current_user_id(),
-			getmypid()
-		));
-	}
-
-	private function record(string $prefix, int $source_id, string $target, array $outcome): void {
-		$status = $outcome['status'];
-		$this->counts[$status] = ($this->counts[$status] ?? 0) + 1;
-		$this->cost           += $outcome['cost'];
-
-		$line = sprintf('%s #%d -> %s: %s', $prefix, $source_id, $target, $status);
-		if ($outcome['target_id']) {
-			$line .= ' #' . $outcome['target_id'];
-		}
-		if ($outcome['cost'] > 0) {
-			$line .= sprintf(' ($%.4f)', $outcome['cost']);
-		}
-		if ($outcome['message'] !== '') {
-			$line .= ' — ' . $outcome['message'];
-		}
-		if (in_array($status, array('error', 'skipped_parent_missing', 'created_with_warning', 'updated_with_warning'), true)) {
-			WP_CLI::warning($line);
-		} else {
-			WP_CLI::log($line);
-		}
-
-		$fields = array(
-			wp_date('c'),
-			$source_id,
-			$target,
-			$outcome['target_id'] ?: '',
-			$status,
-			sprintf('%.6f', $outcome['cost']),
-			$outcome['message'],
-		);
-		$fields = array_map(static fn($field): string => str_replace(array("\t", "\r", "\n"), ' ', (string) $field), $fields);
-		$this->write_log_line(implode("\t", $fields));
-	}
-
-	private function finish(): void {
-		$elapsed = time() - $this->started;
-		$counts  = array();
-		foreach ($this->counts as $status => $count) {
-			$counts[] = $status . '=' . $count;
-		}
-		$summary = sprintf(
-			'Summary: %s; %s $%.4f; elapsed %d:%02d:%02d',
-			$counts ? implode(', ', $counts) : 'nothing to do',
-			$this->dry_run ? sprintf('%d chars, estimated cost', $this->chars) : 'cost',
-			$this->cost,
-			intdiv($elapsed, 3600),
-			intdiv($elapsed % 3600, 60),
-			$elapsed % 60
-		);
-		if ($this->dry_run) {
-			$summary .= sprintf(' (model %s; catalog price per ~3,000 characters)', AIPT_Settings::get()['model']);
-		}
-
-		$this->write_log_line('# ' . wp_date('c') . ' ' . $summary);
-		if ($this->log) {
-			fclose($this->log);
-			$this->log = null;
-		}
-
-		// Non-zero exit when any record failed, so scripts and schedulers notice.
-		$errors = (int) ($this->counts['error'] ?? 0);
-		if ($errors) {
-			WP_CLI::warning($summary);
-			WP_CLI::warning(sprintf('%d record(s) ended in error; see the log for details.', $errors));
-			WP_CLI::halt(1);
-		}
-		WP_CLI::success($summary);
-	}
-
-	// Several shards may append to the same file.
-	private function write_log_line(string $line): void {
-		if (!$this->log) {
-			return;
-		}
-		flock($this->log, LOCK_EX);
-		fwrite($this->log, $line . "\n");
-		fflush($this->log);
-		flock($this->log, LOCK_UN);
-	}
-
 	private function free_memory(): void {
 		global $wpdb;
-		if (function_exists('wp_cache_supports') && wp_cache_supports('flush_runtime')) {
-			wp_cache_flush_runtime();
-		}
+		AIPT_Pipeline::flush_runtime_cache();
 		$wpdb->queries = array();
 		gc_collect_cycles();
-	}
-
-	private static function outcome(string $status, int $target_id = 0, float $cost = 0.0, string $message = '', bool $api = false): array {
-		return array(
-			'status'    => $status,
-			'target_id' => $target_id,
-			'cost'      => $cost,
-			'message'   => $message,
-			'api'       => $api,
-		);
-	}
-
-	private static function csv($value): array {
-		return array_values(array_filter(array_map('trim', explode(',', (string) $value)), 'strlen'));
-	}
-
-	private static function date_arg(array $assoc_args, string $key): string {
-		if (!isset($assoc_args[$key]) || $assoc_args[$key] === '') {
-			return '';
-		}
-		$value = (string) $assoc_args[$key];
-		$date  = DateTime::createFromFormat('!Y-m-d', $value);
-		if (!$date || $date->format('Y-m-d') !== $value) {
-			WP_CLI::error(sprintf('--%s must be a date in Y-m-d format.', $key));
-		}
-		return $value;
-	}
-
-	private static function shard_arg(array $assoc_args): ?array {
-		if (!isset($assoc_args['shard']) || $assoc_args['shard'] === '') {
-			return null;
-		}
-		if (!preg_match('~^(\d+)/(\d+)$~', (string) $assoc_args['shard'], $matches)
-			|| (int) $matches[2] < 1
-			|| (int) $matches[1] >= (int) $matches[2]) {
-			WP_CLI::error('--shard must be i/n with 0 <= i < n, e.g. --shard=0/4.');
-		}
-		return array((int) $matches[1], (int) $matches[2]);
 	}
 }

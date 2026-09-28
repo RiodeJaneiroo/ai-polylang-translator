@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: AI Polylang Translator 1.4.0\n"
+"Project-Id-Version: AI Polylang Translator 1.5.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-06-11 00:00+0000\n"
 "PO-Revision-Date: 2026-06-11 00:00+0000\n"
@@ -432,7 +432,35 @@ msgid "Translation #%1$d was saved as a draft, but its status or slug could not 
 msgstr "Перевод #%1$d сохранён как черновик, но не удалось обновить его статус или ярлык: %2$s"
 
 #. translators: %s: taxonomy name, e.g. "Categories"
-#: includes/class-aipt-cli.php
+#: includes/class-aipt-terms.php
 #, php-format
 msgid "Terms: %s"
 msgstr "Термины: %s"
+
+#: includes/class-aipt-pipeline.php
+msgid "This translation is being created automatically right now. Try again in a few minutes."
+msgstr "Этот перевод сейчас создаётся автоматически. Повторите попытку через несколько минут."
+
+#: includes/class-aipt-settings-auto.php
+msgid "Automatic translation"
+msgstr "Автоматический перевод"
+
+#: includes/class-aipt-settings-auto.php
+msgid "On publish"
+msgstr "При публикации"
+
+#: includes/class-aipt-settings-auto.php
+msgid "Translate automatically on publish"
+msgstr "Автоматически переводить при публикации"
+
+#: includes/class-aipt-settings-auto.php
+msgid "New posts of the enabled post types in the default language are translated in the background (WP-Cron) into the selected languages and published with the source date. Later edits of the source are not re-translated — use “Update translation” in the AI Translation box of the post."
+msgstr "Новые записи включённых типов на языке по умолчанию переводятся в фоне (WP-Cron) на выбранные языки и публикуются с датой оригинала. Последующие правки оригинала повторно не переводятся — используйте «Обновить перевод» в блоке «AI-перевод» записи."
+
+#: includes/class-aipt-settings-auto.php
+msgid "Languages"
+msgstr "Языки"
+
+#: includes/class-aipt-pipeline.php
+msgid "The translation already exists."
+msgstr "Перевод уже существует."

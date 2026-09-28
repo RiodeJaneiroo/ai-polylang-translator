@@ -272,7 +272,7 @@ class AIPT_Job {
 		return true;
 	}
 
-	// Role of the current fresh holder ('cli', 'editor'), or '' when the pair is free.
+	// Role of the current fresh holder ('cli', 'editor', 'auto'), or '' when the pair is free.
 	public static function pair_lock_holder(int $post_id, string $target): string {
 		$stored_value = self::stored_lock_value(self::pair_lock_key($post_id, $target));
 		if (!self::pair_lock_is_fresh($stored_value, time())) {

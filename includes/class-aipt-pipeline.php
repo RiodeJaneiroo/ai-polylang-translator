@@ -1,7 +1,9 @@
 <?php
-// Translation pipeline shared by the editor metabox (AJAX) and WP-CLI:
-// prepare → translate_batch (per batch) → finalize. Every step returns data or a
-// WP_Error; callers own request parsing, job-ownership checks and the response format.
+// Translation pipeline shared by the editor metabox (AJAX), WP-CLI and auto-translation.
+// The editor runs prepare → translate_batch (per batch) → finalize across requests;
+// WP-CLI and AIPT_Auto run the same steps in-process through translate_post(). Every
+// step returns data or a WP_Error; callers own request parsing, job-ownership checks
+// and the response format.
 
 if (!defined('ABSPATH')) {
 	exit;
@@ -10,11 +12,15 @@ if (!defined('ABSPATH')) {
 class AIPT_Pipeline {
 
 	// Pair lock TTLs (see AIPT_Job::acquire_pair_lock). The editor holds it only around
-	// the write; the CLI holds it for the whole record, refreshed after every batch.
+	// the write; translate_post() holds it for the whole record, refreshed after every batch.
 	const EDITOR_PAIR_LOCK_TTL = 300;
-	const CLI_PAIR_LOCK_TTL    = 1800;
+	const RECORD_PAIR_LOCK_TTL = 1800;
 
 	const POST_STATUSES = array('draft', 'pending', 'private', 'future', 'publish');
+
+	// Depth of AIPT_Writer calls in progress, so save hooks can tell the plugin's own
+	// writes from other saves.
+	private static $writing = 0;
 
 	/**
 	 * @param array $opts mode ('overwrite'|'safe'), confirm (bool), post_status (new
@@ -44,6 +50,15 @@ class AIPT_Pipeline {
 	 * @return array|WP_Error
 	 */
 	private static function build_job(int $post_id, string $target, array $opts) {
+		// Checked here, under translate_post()'s pair lock, so a translation that appeared
+		// since the caller's pre-checks is never updated.
+		if (!empty($opts['skip_existing'])) {
+			$found = (int) (pll_get_post($post_id, $target) ?: 0);
+			if ($found) {
+				return new WP_Error('aipt_translation_exists', __('The translation already exists.', 'ai-polylang-translator'), array('target_id' => $found));
+			}
+		}
+
 		$post     = get_post($post_id);
 		$settings = AIPT_Settings::get();
 
@@ -244,36 +259,64 @@ class AIPT_Pipeline {
 	}
 
 	/**
-	 * Synchronous build → all batches → write, for WP-CLI. Batch results stay in memory
-	 * (no job or batch transients), so a long record never depends on their 1-hour TTL;
-	 * usage is still recorded after every API call. Passing a mode is the overwrite
-	 * confirmation. Takes the pair lock itself unless $opts['pair_locked'] says the caller
-	 * already holds it.
+	 * One record in-process (WP-CLI and auto-translation): pair lock → build → all
+	 * batches → write → unlock. The lock is held for the whole record and refreshed
+	 * after every batch. Batch results stay in memory (no job or batch transients), so
+	 * a long record never depends on their 1-hour TTL; usage is still recorded after
+	 * every API call. Passing a mode is the overwrite confirmation.
 	 *
-	 * @param array $opts See prepare(), plus pair_locked (bool).
+	 * @param array $opts See prepare(), plus holder ('cli'|'auto': pair-lock role, default
+	 *                    'cli') and skip_existing (bool: a translation found under the
+	 *                    lock is left alone and reported as skipped_existing).
 	 * @return array|WP_Error {target_id, status (created|updated, with a '_with_warning'
-	 *                        suffix when the final status/slug update failed), cost,
-	 *                        api_calls, warning}. Errors carry {cost, api_calls} as
-	 *                        'aipt_usage' error data.
+	 *                        suffix when the final status/slug update failed, or
+	 *                        skipped_existing), cost, api_calls, warning}. A busy pair is
+	 *                        'aipt_pair_locked' with {holder} error data; other errors
+	 *                        carry {cost, api_calls} as 'aipt_usage' error data.
 	 */
 	public static function translate_post(int $post_id, string $target, array $opts = array()) {
 		if (!current_user_can('edit_post', $post_id)) {
 			return new WP_Error('aipt_forbidden', __('Insufficient permissions.', 'ai-polylang-translator'));
 		}
 
-		$opts['confirm'] = true;
-		$pair_locked     = !empty($opts['pair_locked']);
-		if (!$pair_locked && !AIPT_Job::acquire_pair_lock($post_id, $target, self::CLI_PAIR_LOCK_TTL, 'cli')) {
+		$holder = (string) ($opts['holder'] ?? 'cli');
+		if (!AIPT_Job::acquire_pair_lock($post_id, $target, self::RECORD_PAIR_LOCK_TTL, $holder)) {
 			return self::pair_busy_error($post_id, $target);
 		}
+		// The lock key read the translation group from cache: re-check against fresh data.
+		self::flush_runtime_cache();
 
+		$opts['confirm'] = true;
 		try {
-			return self::run_post($post_id, $target, $opts);
+			$result = self::run_post($post_id, $target, $opts);
 		} finally {
-			if (!$pair_locked) {
-				AIPT_Job::release_pair_lock($post_id, $target);
-			}
+			AIPT_Job::release_pair_lock($post_id, $target);
 		}
+
+		if (is_wp_error($result) && $result->get_error_code() === 'aipt_translation_exists') {
+			return array(
+				'target_id' => (int) $result->get_error_data()['target_id'],
+				'status'    => 'skipped_existing',
+				'cost'      => 0.0,
+				'api_calls' => 0,
+				'warning'   => '',
+			);
+		}
+		return $result;
+	}
+
+	// Long in-process runs (WP-CLI, cron) would keep stale Polylang translation groups.
+	// A persistent cache without runtime flush is left alone (it is site-wide).
+	public static function flush_runtime_cache(): void {
+		if (function_exists('wp_cache_supports') && wp_cache_supports('flush_runtime')) {
+			wp_cache_flush_runtime();
+		} elseif (!wp_using_ext_object_cache()) {
+			wp_cache_flush();
+		}
+	}
+
+	public static function is_writing(): bool {
+		return self::$writing > 0;
 	}
 
 	public static function job_belongs(?array $job, int $post_id): bool {
@@ -316,8 +359,10 @@ class AIPT_Pipeline {
 			AIPT_Job::refresh_pair_lock($post_id, $target);
 		}
 
+		// A stale group after minutes of batches would unlink a translation saved meanwhile.
+		self::flush_runtime_cache();
 		$job['results'] = $results;
-		$new_id         = AIPT_Writer::write($job);
+		$new_id         = self::write($job);
 		$warning        = '';
 		$written        = self::finish_failure($new_id);
 		if ($written) {
@@ -351,7 +396,7 @@ class AIPT_Pipeline {
 		try {
 			$job['results'] = $results;
 
-			$new_id  = AIPT_Writer::write($job);
+			$new_id  = self::write($job);
 			$warning = null;
 			$written = self::finish_failure($new_id);
 			if ($written) {
@@ -386,6 +431,28 @@ class AIPT_Pipeline {
 		}
 	}
 
+	/**
+	 * Every write goes through here. The written post (new or updated, also when only
+	 * its final status/slug update failed) gets the auto-translation marker, so a
+	 * plugin-written post in the default language that is published later — future →
+	 * publish, or a draft published by a person — is never auto-translated.
+	 *
+	 * @return int|WP_Error
+	 */
+	private static function write(array $job) {
+		self::$writing++;
+		try {
+			$written = AIPT_Writer::write($job);
+			$post_id = is_wp_error($written) ? self::finish_failure($written) : (int) $written;
+			if ($post_id) {
+				update_post_meta($post_id, AIPT_Auto::MARKER, time());
+			}
+			return $written;
+		} finally {
+			self::$writing--;
+		}
+	}
+
 	// Post ID of a translation that was written but whose final status/slug update
 	// failed (AIPT_Writer 'aipt_finish_failed'), else 0.
 	private static function finish_failure($written): int {
@@ -412,10 +479,13 @@ class AIPT_Pipeline {
 	}
 
 	private static function pair_busy_error(int $post_id, string $target): WP_Error {
-		if (AIPT_Job::pair_lock_holder($post_id, $target) === 'cli') {
-			return new WP_Error('aipt_pair_locked', __('This translation is being written by a WP-CLI bulk translation right now. Try again in a few minutes.', 'ai-polylang-translator'));
-		}
-		return new WP_Error('aipt_pair_locked', __('The translation is already being saved. Try again in a few seconds.', 'ai-polylang-translator'));
+		$holder   = AIPT_Job::pair_lock_holder($post_id, $target);
+		$messages = array(
+			'cli'  => __('This translation is being written by a WP-CLI bulk translation right now. Try again in a few minutes.', 'ai-polylang-translator'),
+			'auto' => __('This translation is being created automatically right now. Try again in a few minutes.', 'ai-polylang-translator'),
+		);
+		$message = $messages[$holder] ?? __('The translation is already being saved. Try again in a few seconds.', 'ai-polylang-translator');
+		return new WP_Error('aipt_pair_locked', $message, array('holder' => $holder));
 	}
 
 	private static function with_usage(WP_Error $error, float $cost, int $api_calls): WP_Error {

@@ -10,6 +10,11 @@ delete_option('aipt_usage_log');
 delete_option('aipt_usage_totals');
 delete_option('aipt_usage_lock');
 
+// Pending auto-translation events, their markers and the users stored for scheduled posts (AIPT_Auto).
+wp_unschedule_hook('aipt_auto_translate');
+delete_post_meta_by_key('_aipt_auto_scheduled');
+delete_post_meta_by_key('_aipt_auto_user');
+
 global $wpdb;
 
 // Remove lock options written by AIPT_Job::acquire_finalize_lock().

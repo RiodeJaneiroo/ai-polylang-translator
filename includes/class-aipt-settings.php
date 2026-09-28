@@ -8,6 +8,9 @@ class AIPT_Settings {
 
 	const PAGE = 'ai-polylang-translator';
 
+	// Catalog prices are USD per article of about this many characters.
+	const PRICE_CHARS = 3000;
+
 	// Single source of truth for supported models: select labels, the
 	// client-facing cheat sheet and sanitization all derive from this list.
 	// Prices are approximate USD per ~3,000-character article; 'reasoning' is
@@ -38,6 +41,12 @@ class AIPT_Settings {
 		);
 	}
 
+	// Catalog price of the selected model per character, for cost estimates.
+	public static function price_per_char(): float {
+		$price = (string) (self::model_catalog()[self::get()['model']]['price'] ?? '0');
+		return (float) preg_replace('/[^0-9.]/', '', $price) / self::PRICE_CHARS;
+	}
+
 	public static function models(): array {
 		return array_map(static fn(array $model): string => $model['label'], self::model_catalog());
 	}
@@ -63,6 +72,9 @@ class AIPT_Settings {
 			'site_context'    => '',
 			'translate_yoast' => true,
 			'timeout'         => 90,
+			'auto_translate'  => false,
+			// 'all', a list of slugs, or null = never saved (see AIPT_Settings_Auto::languages()).
+			'auto_languages'  => null,
 		);
 	}
 
@@ -77,6 +89,12 @@ class AIPT_Settings {
 			$settings['model'] = self::defaults()['model'];
 		}
 		return $settings;
+	}
+
+	// Raw option read, without get()'s merge: runs on every first publish site-wide.
+	public static function auto_enabled(): bool {
+		$saved = get_option('aipt_settings', array());
+		return is_array($saved) && !empty($saved['auto_translate']);
 	}
 
 	public static function api_key(): string {
@@ -165,7 +183,7 @@ class AIPT_Settings {
 			$out['field_overrides'] = $old['field_overrides'];
 		}
 
-		return $out;
+		return array_merge($out, AIPT_Settings_Auto::sanitize($value, $old));
 	}
 
 	public function enqueue(string $hook): void {
@@ -251,6 +269,8 @@ class AIPT_Settings {
 						</tr>
 					</table>
 				</div>
+
+				<?php AIPT_Settings_Auto::render($settings); ?>
 
 				<?php $this->render_usage_panel(); ?>
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.5.0
+
+### Added
+
+- Automatic translation on publish (Settings > AI Translator > Automatic translation, off by default). When a post of an enabled post type in the Polylang default language is published for the first time (block editor, classic editor, or a scheduled post going live), one background wp-cron event runs two minutes later (after the block editor's metabox save) and translates it into each selected language that has no translation yet: the post's untranslated terms first (ancestors first), then the post, published with the source date. A language whose parent page has no translation is skipped before anything is paid for. Costs go to the cost log. Existing translations are never updated and later edits of the source are not re-translated; use "Update translation" in the metabox. Failures are written to the PHP error log (`AIPT auto-translate: …`) and stop that post; there are no retries. A scheduled post is translated as the user who scheduled it (else the author).
+- Target languages: all non-default languages by default. With every box ticked, languages added to Polylang later are included too; clearing every box selects none.
+- Posts written by the plugin (editor, WP-CLI, auto-translation) are marked and never auto-translated, also when published later. Imports (`WP_IMPORTING`) never schedule anything.
+- Known limits: switching the language to the default one in the Polylang metabox during the first publish is not detected; an old post re-published without ever having been scheduled is scheduled (only missing languages are translated); two cron runners may create the same new term concurrently.
+
+### Changed
+
+- Term translation (`AIPT_Terms`), the per-record pre-checks (`AIPT_Record`), the WP-CLI run log (`AIPT_CLI_Log`) and WP-CLI flag parsing (`AIPT_CLI_Args`) moved out of `AIPT_CLI` into their own classes. `wp aipt translate` and `wp aipt translate-terms` behave as before (same output, log format and exit codes).
+- The editor names an automatic translation in progress when it holds the translation lock.
+- Creating translated terms requires the taxonomy's `edit_terms` capability in every path (WP-CLI checks it up front; auto-translation skips the language and logs it).
+- `AIPT_Pipeline::translate_post()` now owns the whole pair-lock sequence (lock, re-check of an existing translation, refresh per batch) for WP-CLI and auto-translation.
+- Deactivation clears pending auto-translation events; uninstall also removes the `_aipt_auto_scheduled` and `_aipt_auto_user` post meta. Polylang's custom-field sync never copies these keys.
+
 ## 1.4.0
 
 ### Added

@@ -12,6 +12,10 @@ class AIPT_Job {
 	const FINALIZE_LOCK_TTL = 300;
 
 	private static $lock_owners = array();
+	// "<post_id>|<target>" => pair lock key taken by this process. The translation group
+	// can change while the lock is held (the write adds the new translation), so refresh
+	// and release use the key computed at acquire time.
+	private static $pair_keys = array();
 
 	public static function create(array $data): string {
 		$id = wp_generate_uuid4();
@@ -233,6 +237,113 @@ class AIPT_Job {
 		}
 		self::$lock_owners[$key] = $lock_value;
 		return true;
+	}
+
+	// Non-blocking lock on one (source post, target language) pair, so a CLI run and
+	// the editor never write the same translation at once. Unlike the named lock, the
+	// holder stores its own TTL and role in the row: every contender judges staleness by
+	// the holder's TTL (a 30-minute CLI lock is not stolen by a 5-minute editor check),
+	// and the editor can tell who is busy. Row value: "<time>:<uuid>:<ttl>:<holder>".
+	public static function acquire_pair_lock(int $post_id, string $target, int $ttl, string $holder): bool {
+		$key = self::pair_lock_key($post_id, $target);
+		$now = time();
+
+		$lock_value = self::new_lock_value($now) . ':' . $ttl . ':' . $holder;
+		if (self::insert_lock($key, $lock_value)) {
+			self::$lock_owners[$key]                   = $lock_value;
+			self::$pair_keys[$post_id . '|' . $target] = $key;
+			return true;
+		}
+
+		$stored_value = self::stored_lock_value($key);
+		if (self::pair_lock_is_fresh($stored_value, $now)) {
+			return false;
+		}
+		if ($stored_value !== '' && !self::delete_lock_value($key, $stored_value)) {
+			return false;
+		}
+
+		$lock_value = self::new_lock_value($now) . ':' . $ttl . ':' . $holder;
+		if (!self::insert_lock($key, $lock_value)) {
+			return false;
+		}
+		self::$lock_owners[$key]                   = $lock_value;
+		self::$pair_keys[$post_id . '|' . $target] = $key;
+		return true;
+	}
+
+	// Role of the current fresh holder ('cli', 'editor'), or '' when the pair is free.
+	public static function pair_lock_holder(int $post_id, string $target): string {
+		$stored_value = self::stored_lock_value(self::pair_lock_key($post_id, $target));
+		if (!self::pair_lock_is_fresh($stored_value, time())) {
+			return '';
+		}
+		$parts = explode(':', $stored_value);
+		return (string) ($parts[3] ?? '');
+	}
+
+	// Heartbeat for long records: move our own lock's timestamp forward so the TTL
+	// counts from the last finished batch. No-op when this process does not hold it.
+	public static function refresh_pair_lock(int $post_id, string $target): void {
+		global $wpdb;
+		$key = self::$pair_keys[$post_id . '|' . $target] ?? '';
+		if ($key === '' || !isset(self::$lock_owners[$key])) {
+			return;
+		}
+		$parts    = explode(':', self::$lock_owners[$key]);
+		$parts[0] = (string) time();
+		$value    = implode(':', $parts);
+		$updated  = $wpdb->query($wpdb->prepare(
+			"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+			$value,
+			$key,
+			self::$lock_owners[$key]
+		));
+		self::clear_lock_cache($key);
+		if ($updated === 1) {
+			self::$lock_owners[$key] = $value;
+		}
+	}
+
+	public static function release_pair_lock(int $post_id, string $target): void {
+		$pair = $post_id . '|' . $target;
+		if (!isset(self::$pair_keys[$pair])) {
+			return;
+		}
+		self::release_named_lock(self::$pair_keys[$pair]);
+		unset(self::$pair_keys[$pair]);
+	}
+
+	private static function pair_lock_is_fresh(string $stored_value, int $now): bool {
+		if ($stored_value === '') {
+			return false;
+		}
+		$parts     = explode(':', $stored_value);
+		$locked_at = (int) $parts[0];
+		$ttl       = (int) ($parts[2] ?? 0);
+		return $locked_at && $ttl > 0 && $locked_at > $now - $ttl;
+	}
+
+	// Read straight from the DB — the object cache may not know about a raw INSERT.
+	private static function stored_lock_value(string $key): string {
+		global $wpdb;
+		return (string) $wpdb->get_var($wpdb->prepare(
+			"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+			$key
+		));
+	}
+
+	// Keyed per translation group (its smallest post ID), not per source post: two
+	// members of one group translated into the same language write the same target.
+	private static function pair_lock_key(int $post_id, string $target): string {
+		$group = $post_id;
+		if (function_exists('pll_get_post_translations')) {
+			$ids = array_filter(array_map('intval', (array) pll_get_post_translations($post_id)));
+			if ($ids) {
+				$group = min(min($ids), $post_id);
+			}
+		}
+		return 'aipt_pair_lock_' . $group . '_' . sanitize_key($target);
 	}
 
 	private static function new_lock_value(int $now): string {

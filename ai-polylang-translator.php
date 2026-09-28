@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Polylang Translator
  * Description: AI translation of posts and ACF fields into other Polylang languages via Vercel AI Gateway.
- * Version: 1.3.0
+ * Version: 1.4.0
  * Author: Vadym Zm
  * Author URI: https://artzm.dev/
  * Text Domain: ai-polylang-translator
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
-define('AIPT_VERSION', '1.3.0');
+define('AIPT_VERSION', '1.4.0');
 define('AIPT_FILE', __FILE__);
 define('AIPT_DIR', plugin_dir_path(__FILE__));
 define('AIPT_URL', plugin_dir_url(__FILE__));
@@ -58,11 +58,18 @@ add_action('plugins_loaded', function () {
 	require_once AIPT_DIR . 'includes/class-aipt-extractor.php';
 	require_once AIPT_DIR . 'includes/class-aipt-job.php';
 	require_once AIPT_DIR . 'includes/class-aipt-usage.php';
+	require_once AIPT_DIR . 'includes/class-aipt-slug.php';
 	require_once AIPT_DIR . 'includes/class-aipt-writer.php';
+	require_once AIPT_DIR . 'includes/class-aipt-pipeline.php';
 	require_once AIPT_DIR . 'includes/class-aipt-metabox.php';
 
 	if (is_admin()) {
 		new AIPT_Settings();
 		new AIPT_Metabox();
+	}
+
+	if (defined('WP_CLI') && WP_CLI) {
+		require_once AIPT_DIR . 'includes/class-aipt-cli.php';
+		WP_CLI::add_command('aipt', 'AIPT_CLI');
 	}
 }, 20);

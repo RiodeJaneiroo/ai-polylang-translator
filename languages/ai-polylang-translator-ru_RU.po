@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: AI Polylang Translator 1.3.0\n"
+"Project-Id-Version: AI Polylang Translator 1.4.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-06-11 00:00+0000\n"
 "PO-Revision-Date: 2026-06-11 00:00+0000\n"
@@ -313,59 +313,59 @@ msgstr "Перевести на %s"
 msgid "Translation job not found or expired. Start over."
 msgstr "Задача перевода не найдена или устарела. Начните заново."
 
-#: includes/class-aipt-metabox.php:148
+#: includes/class-aipt-pipeline.php
 msgid "This post type is not enabled in the translation settings."
 msgstr "Этот тип записи не включён в настройках перевода."
 
-#: includes/class-aipt-metabox.php:151
+#: includes/class-aipt-pipeline.php
 msgid "API key is not set."
 msgstr "API-ключ не задан."
 
-#: includes/class-aipt-metabox.php:162
+#: includes/class-aipt-pipeline.php
 msgid "The post has no Polylang language set."
 msgstr "У записи не задан язык Polylang."
 
-#: includes/class-aipt-metabox.php:165
+#: includes/class-aipt-pipeline.php
 msgid "Invalid target language."
 msgstr "Некорректный целевой язык."
 
-#: includes/class-aipt-metabox.php:170
+#: includes/class-aipt-pipeline.php
 msgid "Insufficient permissions to modify the existing translation."
 msgstr "Недостаточно прав для изменения существующего перевода."
 
-#: includes/class-aipt-metabox.php:173
+#: includes/class-aipt-pipeline.php
 msgid "Insufficient permissions to create a translation."
 msgstr "Недостаточно прав для создания перевода."
 
-#: includes/class-aipt-metabox.php:181
+#: includes/class-aipt-pipeline.php
 msgid "A translation already exists — overwrite confirmation is required."
 msgstr "Перевод уже существует — требуется подтверждение перезаписи."
 
-#: includes/class-aipt-metabox.php:187
+#: includes/class-aipt-pipeline.php
 msgid "The post has no text to translate."
 msgstr "В записи нет текста для перевода."
 
-#: includes/class-aipt-metabox.php:226
+#: includes/class-aipt-pipeline.php
 msgid "Could not save the translation job — the payload is too large. Contact an administrator."
 msgstr "Не удалось сохранить задачу перевода — слишком большой объём данных. Обратитесь к администратору."
 
-#: includes/class-aipt-metabox.php:239
+#: includes/class-aipt-pipeline.php
 msgid "Unknown translation block."
 msgstr "Неизвестный блок перевода."
 
-#: includes/class-aipt-metabox.php:266
+#: includes/class-aipt-pipeline.php
 msgid "Could not save the translation result — the payload is too large. Contact an administrator."
 msgstr "Не удалось сохранить результат перевода — слишком большой объём данных. Обратитесь к администратору."
 
-#: includes/class-aipt-metabox.php:286
+#: includes/class-aipt-pipeline.php
 msgid "Not all blocks are translated — finalization is not possible."
 msgstr "Не все блоки переведены — завершение невозможно."
 
-#: includes/class-aipt-metabox.php:290
+#: includes/class-aipt-pipeline.php
 msgid "The translation is already being saved. Try again in a few seconds."
 msgstr "Перевод уже сохраняется. Повторите запрос через несколько секунд."
 
-#: includes/class-aipt-metabox.php:344
+#: includes/class-aipt-pipeline.php
 msgid "The saved translation was not found. Start the translation over."
 msgstr "Сохранённый перевод не найден. Начните перевод заново."
 
@@ -420,3 +420,19 @@ msgstr "Самые естественные и точные переводы —
 #: includes/class-aipt-settings.php
 msgid "Prices are approximate, for a typical article of about 3,000 characters. Longer pages cost proportionally more; the exact amount for every translation is shown in the cost log above."
 msgstr "Цены ориентировочные, из расчёта типичной статьи около 3 000 знаков. Длинные страницы стоят пропорционально дороже; точная сумма каждого перевода видна в журнале расходов выше."
+
+#: includes/class-aipt-pipeline.php
+msgid "This translation is being written by a WP-CLI bulk translation right now. Try again in a few minutes."
+msgstr "Этот перевод сейчас записывает массовый перевод через WP-CLI. Повторите попытку через несколько минут."
+
+#. translators: 1: translation post ID, 2: error message
+#: includes/class-aipt-writer.php
+#, php-format
+msgid "Translation #%1$d was saved as a draft, but its status or slug could not be updated: %2$s"
+msgstr "Перевод #%1$d сохранён как черновик, но не удалось обновить его статус или ярлык: %2$s"
+
+#. translators: %s: taxonomy name, e.g. "Categories"
+#: includes/class-aipt-cli.php
+#, php-format
+msgid "Terms: %s"
+msgstr "Термины: %s"

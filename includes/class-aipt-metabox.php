@@ -1,5 +1,5 @@
 <?php
-// "AI translate" metabox and the AJAX flow: prepare → translate_batch (loop) → finalize.
+// "AI translate" metabox and its AJAX layer over AIPT_Pipeline: prepare → translate_batch (loop) → finalize.
 
 if (!defined('ABSPATH')) {
 	exit;
@@ -122,248 +122,48 @@ class AIPT_Metabox {
 	private function load_job(int $post_id): array {
 		$job_id = sanitize_text_field(wp_unslash($_POST['job_id'] ?? ''));
 		$job    = AIPT_Job::get($job_id);
-		if (!$this->job_belongs_to_request($job, $post_id)) {
+		if (!AIPT_Pipeline::job_belongs($job, $post_id)) {
 			wp_send_json_error(array('message' => __('Translation job not found or expired. Start over.', 'ai-polylang-translator')));
 		}
 		return array($job_id, $job);
 	}
 
-	private function job_belongs_to_request(?array $job, int $post_id): bool {
-		return $job
-			&& (int) ($job['user_id'] ?? 0) === get_current_user_id()
-			&& (int) ($job['post_id'] ?? 0) === $post_id;
-	}
-
-	private function can_create_translation(WP_Post $post): bool {
-		$post_type = get_post_type_object($post->post_type);
-		return $post_type && current_user_can($post_type->cap->create_posts);
-	}
-
 	public function ajax_prepare(): void {
-		$post_id  = $this->guard();
-		$post     = get_post($post_id);
-		$settings = AIPT_Settings::get();
+		$post_id = $this->guard();
+		$target  = sanitize_key(wp_unslash($_POST['target'] ?? ''));
+		$mode    = sanitize_key(wp_unslash($_POST['mode'] ?? 'overwrite'));
 
-		if (!$post || !in_array($post->post_type, $settings['post_types'], true)) {
-			wp_send_json_error(array('message' => __('This post type is not enabled in the translation settings.', 'ai-polylang-translator')));
-		}
-		if (AIPT_Settings::api_key() === '') {
-			wp_send_json_error(array('message' => __('API key is not set.', 'ai-polylang-translator')));
-		}
-
-		$target      = sanitize_key(wp_unslash($_POST['target'] ?? ''));
-		$mode        = sanitize_key(wp_unslash($_POST['mode'] ?? 'overwrite'));
-		$source_lang = pll_get_post_language($post_id);
-		if ($mode !== 'safe') {
-			$mode = 'overwrite';
-		}
-
-		if (!$source_lang) {
-			wp_send_json_error(array('message' => __('The post has no Polylang language set.', 'ai-polylang-translator')));
-		}
-		if (!in_array($target, pll_languages_list(), true) || $target === $source_lang) {
-			wp_send_json_error(array('message' => __('Invalid target language.', 'ai-polylang-translator')));
-		}
-
-		$existing = (int) (pll_get_post($post_id, $target) ?: 0);
-		if ($existing && !current_user_can('edit_post', $existing)) {
-			wp_send_json_error(array('message' => __('Insufficient permissions to modify the existing translation.', 'ai-polylang-translator')));
-		}
-		if (!$existing && !$this->can_create_translation($post)) {
-			wp_send_json_error(array('message' => __('Insufficient permissions to create a translation.', 'ai-polylang-translator')));
-		}
-		if (!$existing) {
-			$mode = 'overwrite';
-		}
-		if ($existing && $mode === 'overwrite' && empty($_POST['confirm'])) {
-			wp_send_json_error(array(
-				'code'    => 'needs_confirm',
-				'message' => __('A translation already exists — overwrite confirmation is required.', 'ai-polylang-translator'),
-			));
-		}
-
-		$extract = AIPT_Extractor::extract($post_id, $existing, $mode === 'safe');
-		if (!$extract['items'] && $mode !== 'safe') {
-			wp_send_json_error(array('message' => __('The post has no text to translate.', 'ai-polylang-translator')));
-		}
-
-		$source_name = (string) pll_get_post_language($post_id, 'name');
-		$target_name = $target;
-		foreach (pll_languages_list(array('fields' => '')) as $language) {
-			if ($language->slug === $target) {
-				$target_name = $language->name;
-				break;
-			}
-		}
-
-		$batches = array();
-		foreach (AIPT_Extractor::build_batches($extract['items']) as $keys) {
-			$batches[] = array('keys' => $keys);
-		}
-
-		// Immutable payload: written once here and never rewritten. Per-batch results
-		// live in their own transients so concurrent batch requests cannot clobber a
-		// shared blob (last-write-wins data loss).
-		$job_id = AIPT_Job::create(array(
-			'user_id'     => get_current_user_id(),
-			'post_id'     => $post_id,
-			'target'      => $target,
-			// Snapshot the model at job-creation time: the cost log must reflect
-			// the model actually used even if the setting changes before finalize.
-			'model'       => $settings['model'],
-			'existing'    => $existing,
-			'mode'        => $mode,
-			'source_name' => $source_name ?: $source_lang,
-			'target_name' => $target_name,
-			'items'       => $extract['items'],
-			'tree'        => $extract['tree'],
-			'remap'       => $extract['remap'],
-			'meta'        => $extract['meta'],
-			'preserve'    => $extract['preserve'],
-			'overwrite'   => $extract['overwrite'],
-			'flex'        => $extract['flex'],
-			'skip'        => $extract['skip'],
-			// Jobs without this marker were created by 1.2 and still rely on
-			// finalize-time aggregation of usage stored in batch transients.
-			'usage_recorded_per_batch' => true,
-			'batches'     => $batches,
-		));
-
-		if ($job_id === '') {
-			wp_send_json_error(array('message' => __('Could not save the translation job — the payload is too large. Contact an administrator.', 'ai-polylang-translator')));
-		}
-
-		wp_send_json_success(array('job_id' => $job_id, 'total' => count($batches)));
+		$this->send(AIPT_Pipeline::prepare($post_id, $target, array(
+			'mode'    => $mode,
+			'confirm' => !empty($_POST['confirm']),
+		)));
 	}
 
 	public function ajax_translate_batch(): void {
 		$post_id = $this->guard();
 		list($job_id, $job) = $this->load_job($post_id);
 
-		$total = count($job['batches']);
-		$index = absint($_POST['batch'] ?? 0);
-		if (!isset($job['batches'][$index])) {
-			wp_send_json_error(array('message' => __('Unknown translation block.', 'ai-polylang-translator')));
-		}
-
-		// Idempotent: a finished batch is never re-translated.
-		if (AIPT_Job::get_batch($job_id, $index) !== false) {
-			wp_send_json_success(array('done' => $index + 1, 'total' => $total));
-		}
-
-		if (function_exists('set_time_limit')) {
-			set_time_limit(180);
-		}
-
-		$map = array();
-		foreach ($job['batches'][$index]['keys'] as $item_id) {
-			if (isset($job['items'][$item_id])) {
-				$map[$item_id] = $job['items'][$item_id]['text'];
-			}
-		}
-
-		$result = AIPT_Gateway::translate_map($map, $job['source_name'], $job['target_name'], (string) ($job['model'] ?? ''));
-
-		// Record usage immediately after the API call — tokens are billed even when
-		// the reply is rejected (truncated, empty, bad JSON), so we must not defer
-		// this to finalize where the error path would exit first. Pre-upgrade jobs
-		// keep their old finalize-time accounting to avoid double-counting.
-		$usage = AIPT_Gateway::get_usage();
-		if (!empty($job['usage_recorded_per_batch'])
-			&& ($usage['tokens_in'] || $usage['tokens_out'] || $usage['cost'])) {
-			AIPT_Usage::record_job_usage(
-				$job,
-				$job_id,
-				$usage
-			);
-		}
-
-		if (is_wp_error($result)) {
-			wp_send_json_error(array('message' => $result->get_error_message()));
-		}
-
-		if (!AIPT_Job::save_batch($job_id, $index, $result, AIPT_Gateway::get_usage())) {
-			wp_send_json_error(array('message' => __('Could not save the translation result — the payload is too large. Contact an administrator.', 'ai-polylang-translator')));
-		}
-
-		wp_send_json_success(array('done' => $index + 1, 'total' => $total));
+		$this->send(AIPT_Pipeline::translate_batch($job_id, $job, absint($_POST['batch'] ?? 0)));
 	}
 
 	public function ajax_finalize(): void {
 		$post_id = $this->guard();
 		list($job_id, $job) = $this->load_job($post_id);
 
-		// A repeated finalize after a successful write returns the saved translation.
-		if (($job['status'] ?? '') === 'complete') {
-			$this->send_finalized_job($job);
-		}
-
-		$total   = count($job['batches']);
-		$results = AIPT_Job::get_batches($job_id, $total);
-		if ($results === null) {
-			wp_send_json_error(array('message' => __('Not all blocks are translated — finalization is not possible.', 'ai-polylang-translator')));
-		}
-
-		if (!AIPT_Job::acquire_finalize_lock($job_id)) {
-			wp_send_json_error(array('message' => __('The translation is already being saved. Try again in a few seconds.', 'ai-polylang-translator')));
-		}
-
-		$error = null;
-		try {
-			$job = AIPT_Job::get($job_id);
-			if (!$this->job_belongs_to_request($job, $post_id)) {
-				$error = new WP_Error('aipt_job_expired', __('Translation job not found or expired. Start over.', 'ai-polylang-translator'));
-			} elseif (($job['status'] ?? '') === 'complete') {
-				// Won by a concurrent finalize while we waited for the lock.
-				$error = null;
-			} else {
-				$job['results'] = $results;
-
-				$new_id = AIPT_Writer::write($job);
-				if (is_wp_error($new_id)) {
-					// Leave the batch transients in place so the user can retry finalize.
-					$error = $new_id;
-				} else {
-					// Keep a small completion marker so a duplicate finalize returns the
-					// link; drop the per-batch result transients (the large blobs).
-					unset($job['results']);
-					$job['status']       = 'complete';
-					$job['finalized_id'] = (int) $new_id;
-					AIPT_Job::save($job_id, $job);
-
-					// Jobs prepared before per-request accounting was introduced have
-					// usage only in their batch transients. Aggregate it before cleanup.
-					if (empty($job['usage_recorded_per_batch'])) {
-						AIPT_Usage::record_job_usage(
-							$job,
-							$job_id,
-							AIPT_Job::get_usage_total($job_id, $total)
-						);
-					}
-
-					AIPT_Job::delete_batches($job_id, $total);
-				}
-			}
-		} finally {
-			AIPT_Job::release_finalize_lock($job_id);
-		}
-
-		if ($error) {
-			wp_send_json_error(array('message' => $error->get_error_message()));
-		}
-
-		$this->send_finalized_job($job);
+		$this->send(AIPT_Pipeline::finalize($job_id, $job));
 	}
 
-	private function send_finalized_job(array $job): void {
-		$post_id = (int) ($job['finalized_id'] ?? 0);
-		if (!$post_id || !get_post($post_id)) {
-			wp_send_json_error(array('message' => __('The saved translation was not found. Start the translation over.', 'ai-polylang-translator')));
+	// metabox.js reads data.code only for needs_confirm; every other error is {message}.
+	private function send($result): void {
+		if (!is_wp_error($result)) {
+			wp_send_json_success($result);
 		}
-
-		wp_send_json_success(array(
-			'post_id'   => $post_id,
-			'edit_link' => get_edit_post_link($post_id, 'raw'),
-		));
+		if ($result->get_error_code() === 'needs_confirm') {
+			wp_send_json_error(array(
+				'code'    => 'needs_confirm',
+				'message' => $result->get_error_message(),
+			));
+		}
+		wp_send_json_error(array('message' => $result->get_error_message()));
 	}
 }

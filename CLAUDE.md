@@ -19,15 +19,19 @@ Manual verification happens in wp-admin: Settings > AI Translator (API-key test,
 
 ## Architecture
 
-Bootstrap `ai-polylang-translator.php` defines constants, checks for Polylang, loads one `AIPT_*` class per file from `includes/`, and instantiates `AIPT_Settings` + `AIPT_Metabox` in admin. `assets/` is dependency-free vanilla JS/CSS.
+Bootstrap `ai-polylang-translator.php` defines constants, checks for Polylang, loads one `AIPT_*` class per file from `includes/`, instantiates `AIPT_Settings` + `AIPT_Metabox` in admin, and registers `AIPT_CLI` as `wp aipt` when WP-CLI is running. `assets/` is dependency-free vanilla JS/CSS.
 
 ### Translation pipeline: prepare → translate_batch (loop) → finalize
 
-Driven by `assets/metabox.js` through three AJAX actions in `AIPT_Metabox`:
+Implemented in `AIPT_Pipeline` (each step returns data or `WP_Error`). `AIPT_Metabox` is a thin AJAX layer over it (nonce/capability `guard()`, `$_POST` parsing, job ownership, `wp_send_json_*`; response shapes are what `assets/metabox.js` expects). `AIPT_Pipeline::translate_post()` runs the same steps in-process for WP-CLI, keeping batch results in memory (no job/batch transients; usage still recorded per batch):
 
 1. **prepare** (`ajax_prepare`): `AIPT_Extractor::extract()` collects translatable strings, `build_batches()` greedy-packs them (8 KB / 60 items per batch), and `AIPT_Job::create()` stores an **immutable** job payload in a transient (TTL 1 hour). The job snapshots the model at creation time so the cost log reflects the model actually used.
 2. **translate_batch** (called per batch index): `AIPT_Gateway::translate_map()` sends an `{id: text}` JSON map to the model and expects the same keys back. Each batch's result + token usage is saved in its **own** transient (`AIPT_Job::save_batch`) so concurrent batch requests never read-modify-write a shared blob. Idempotent: a finished batch returns success without re-translating. Usage is recorded immediately after the API call (tokens are billed even when the reply is rejected).
 3. **finalize** (`ajax_finalize`): merges all batch transients, takes a DB-row finalize lock, and `AIPT_Writer::write()` creates/updates the translation post. On success a small completion marker is kept so duplicate finalize calls return the link.
+
+### WP-CLI (`AIPT_CLI`)
+
+`wp aipt translate` selects source IDs up front (`fields => ids`, parents first) and processes one post × language at a time: pre-checks (existing, parent translation, untranslated terms) → pair lock → re-check → `translate_post()`; every record gets one TSV log line. `wp aipt translate-terms` translates term names/descriptions via `AIPT_Gateway` and creates linked terms parents first. See `wp help aipt translate`.
 
 ### Item path addressing
 
@@ -41,7 +45,7 @@ ACF values are read raw (`format_value = false`) — repeater/flexible rows keye
 
 ### Writer ordering invariant
 
-`AIPT_Writer` order matters and must be preserved: insert/update post → `pll_set_post_language` → ID remap (relationship/post_object/page_link/taxonomy fields remapped to target-language equivalents) → meta → ACF → taxonomies → `pll_save_post_translations` **last**, so Polylang sync-on-save never touches a half-built post. Polylang sync hooks are suspended for the duration and restored in `finally`. Model output (and only model output — never values copied verbatim from the source) is run through `wp_kses_post` for users without `unfiltered_html`.
+`AIPT_Writer` order matters and must be preserved: insert/update post → `pll_set_post_language` → ID remap (relationship/post_object/page_link/taxonomy fields remapped to target-language equivalents) → meta → ACF → taxonomies → `pll_save_post_translations` **last**, so Polylang sync-on-save never touches a half-built post. Only a new translation then gets its requested status and a re-checked slug (`finish_new_post`: it is inserted as a draft, so publish hooks see the finished post). Slugs of new posts and terms come from `AIPT_Slug` (entity-decoded, accent-stripped; a cross-language collision gets `-{lang}` instead of `-2`). Polylang sync hooks are suspended for the duration and restored in `finally`. Model output (and only model output — never values copied verbatim from the source) is run through `wp_kses_post` for users without `unfiltered_html`.
 
 ### Safe mode (updating an existing translation)
 
@@ -51,6 +55,7 @@ ACF values are read raw (`format_value = false`) — repeater/flexible rows keye
 
 - `AIPT_Job` implements locks as `INSERT IGNORE` rows in `wp_options` (mirroring `WP_Upgrader::create_lock`), with stale-takeover by timestamp, because `add_option()` is not atomic. Lock reads bypass the object cache deliberately.
 - `AIPT_Usage` (cost log + totals in options, capped at 50 entries) serialises concurrent batch writes with a global named lock; entries are idempotent per `job_id` (subsequent batches accumulate into the existing row).
+- Pair lock (`AIPT_Job::acquire_pair_lock`, row `aipt_pair_lock_<group_id>_<lang>`, group_id = smallest post ID in the source's translation group): the CLI holds it for a whole record (30 min TTL, refreshed after each batch), the editor only around the write in finalize (5 min). The row stores the holder's TTL and role, so contenders apply the holder's expiry and the editor can say a CLI run is busy.
 - Jobs without the `usage_recorded_per_batch` marker are pre-1.3 jobs and keep finalize-time usage aggregation — don't break that upgrade path.
 
 ### Gateway

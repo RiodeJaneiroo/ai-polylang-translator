@@ -1,7 +1,8 @@
 <?php
 // Writes the translation. Order matters: insert → pll_set_post_language → meta →
 // ACF → taxonomies → pll_save_post_translations last, so no Polylang sync-on-save
-// can touch a half-built post.
+// can touch a half-built post. Only a new translation then gets its final status and
+// slug (finish_new_post), on the complete post and still with sync suspended.
 
 if (!defined('ABSPATH')) {
 	exit;
@@ -139,6 +140,9 @@ class AIPT_Writer {
 			);
 		}
 
+		$keep_date = !empty($job['keep_date']);
+		$slug      = '';
+		$parent    = 0;
 		if ($existing) {
 			$postarr = array(
 				'ID'           => $existing,
@@ -147,24 +151,35 @@ class AIPT_Writer {
 				'post_excerpt' => $excerpt,
 			);
 			// Status and slug of an existing translation are kept — its URLs may be indexed.
+			if ($keep_date) {
+				$postarr['post_date']     = $source->post_date;
+				$postarr['post_date_gmt'] = $source->post_date_gmt;
+				$postarr['edit_date']     = true;
+			}
 			$new_id = wp_update_post(wp_slash($postarr), true);
 		} else {
-			$parent = 0;
 			if ($source->post_parent) {
 				$parent = (int) (pll_get_post($source->post_parent, $target) ?: 0);
 			}
+			$slug    = AIPT_Slug::for_post(AIPT_Slug::from_title($title), $target, 0, $source->post_type, $parent);
 			$postarr = array(
 				'post_title'     => $title,
 				'post_content'   => $content,
 				'post_excerpt'   => $excerpt,
+				// Always created as a draft; a requested other status is applied by
+				// finish_new_post() once the translation is complete (see there).
 				'post_status'    => 'draft',
 				'post_type'      => $source->post_type,
 				'post_parent'    => $parent,
 				'menu_order'     => $source->menu_order,
 				'comment_status' => $source->comment_status,
 				'ping_status'    => $source->ping_status,
-				'post_name'      => sanitize_title($title),
+				'post_name'      => $slug,
 			);
+			if ($keep_date) {
+				$postarr['post_date']     = $source->post_date;
+				$postarr['post_date_gmt'] = $source->post_date_gmt;
+			}
 			$new_id = wp_insert_post(wp_slash($postarr), true);
 		}
 
@@ -276,7 +291,55 @@ class AIPT_Writer {
 		$translations[$target] = $new_id;
 		pll_save_post_translations($translations);
 
+		if (!$existing) {
+			$finished = self::finish_new_post($new_id, $source, $target, $title, $parent, (string) ($job['post_status'] ?? 'draft'));
+			if (is_wp_error($finished)) {
+				return $finished;
+			}
+		}
+
 		return $new_id;
+	}
+
+	/**
+	 * A new translation is inserted as a draft and gets a requested non-draft status only
+	 * here, once it is complete (language, meta, ACF, terms and translation group saved),
+	 * so publish-time hooks — SEO indexables, sitemaps, notifications — see the finished
+	 * post in its real language. Polylang sync is still suspended. The slug is re-checked
+	 * now that the language is known: setups that share slugs across languages (e.g.
+	 * Polylang Pro) can only tell at this point that no language suffix is needed.
+	 *
+	 * @return true|WP_Error 'aipt_finish_failed' carries the written post ID as
+	 *                       ['post_id' => ID] error data: the translation exists and is linked.
+	 */
+	private static function finish_new_post(int $post_id, WP_Post $source, string $target, string $title, int $parent, string $status) {
+		$postarr = array();
+		// Compare with what WordPress actually stored, not with the slug we asked for.
+		$stored = (string) get_post_field('post_name', $post_id);
+		if ($stored !== '') {
+			$final = AIPT_Slug::for_post(AIPT_Slug::from_title($title), $target, $post_id, $source->post_type, $parent);
+			if ($final !== '' && $final !== $stored) {
+				$postarr['post_name'] = $final;
+			}
+		}
+		if ($status !== 'draft') {
+			$postarr['post_status'] = $status;
+		}
+		if (!$postarr) {
+			return true;
+		}
+
+		$postarr['ID'] = $post_id;
+		$updated = wp_update_post(wp_slash($postarr), true);
+		if (is_wp_error($updated)) {
+			return new WP_Error('aipt_finish_failed', sprintf(
+				/* translators: 1: translation post ID, 2: error message */
+				__('Translation #%1$d was saved as a draft, but its status or slug could not be updated: %2$s', 'ai-polylang-translator'),
+				$post_id,
+				$updated->get_error_message()
+			), array('post_id' => $post_id));
+		}
+		return true;
 	}
 
 	private static function copy_taxonomies(WP_Post $source, int $new_id, string $target, bool $safe): void {

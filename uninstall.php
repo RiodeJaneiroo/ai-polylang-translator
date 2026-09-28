@@ -22,6 +22,14 @@ $wpdb->query(
 	)
 );
 
+// Remove (translation group, target language) pair locks: aipt_pair_lock_<group_id>_<lang>.
+$wpdb->query(
+	$wpdb->prepare(
+		"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+		$wpdb->esc_like('aipt_pair_lock_') . '%'
+	)
+);
+
 // Remove job transients and their timeout companions from the options table.
 // Covers main job blobs (aipt_job_<uuid>), batch transients (aipt_job_<uuid>_batch_<n>),
 // and any future aipt_job_* transients.

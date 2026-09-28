@@ -74,7 +74,8 @@ class AIPT_Usage {
 					'job_id'     => $job_id,
 					'time'       => time(),
 					'post_id'    => $post_id,
-					'title'      => get_the_title($post_id),
+					// Term runs have no post; they pass their own title (e.g. the taxonomy).
+					'title'      => isset($job_meta['title']) ? (string) $job_meta['title'] : get_the_title($post_id),
 					'target'     => (string) ($job_meta['target'] ?? ''),
 					'model'      => (string) ($job_meta['model'] ?? AIPT_Settings::get()['model']),
 					'tokens_in'  => $tokens_in,

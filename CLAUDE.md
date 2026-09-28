@@ -55,7 +55,7 @@ ACF values are read raw (`format_value = false`) — repeater/flexible rows keye
 
 ### Gateway
 
-`AIPT_Gateway` talks to `https://ai-gateway.vercel.sh/v1/chat/completions` (OpenAI-compatible). It requests JSON mode, retries once without `response_format` on HTTP 400, retries missing keys once in a fresh conversation, and strips markdown fences from replies. Usage (`tokens_in`/`tokens_out`/`cost`) accumulates per `translate_map()` window. The supported-model list lives only in `AIPT_Settings::model_catalog()` — select labels, the cheat-sheet table, and sanitization all derive from it.
+`AIPT_Gateway` talks to `https://ai-gateway.vercel.sh/v1/chat/completions` (OpenAI-compatible). It requests JSON mode, retries once without `response_format` on HTTP 400, retries missing keys once in a fresh conversation, and strips markdown fences from replies. Usage (`tokens_in`/`tokens_out`/`cost`) accumulates per `translate_map()` window. The supported-model list lives only in `AIPT_Settings::model_catalog()` — select labels, the cheat-sheet table, sanitization, and the per-model `reasoning.effort` sent by the gateway all derive from it.
 
 ## Conventions
 

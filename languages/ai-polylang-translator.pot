@@ -82,20 +82,16 @@ msgstr ""
 msgid "Request ID: %s."
 msgstr ""
 
-#: includes/class-aipt-settings.php:13
-msgid "Gemini 2.5 Flash Lite — ultra cheap, fastest"
+#: includes/class-aipt-settings.php:19
+msgid "GPT-6 Luna — recommended, best value"
 msgstr ""
 
-#: includes/class-aipt-settings.php:14
-msgid "Gemini 2.5 Flash — recommended, best value for translation"
+#: includes/class-aipt-settings.php:26
+msgid "Gemini 3.8 Flash — natural phrasing, non-OpenAI alternative"
 msgstr ""
 
-#: includes/class-aipt-settings.php:15
-msgid "GPT-4.1 mini — balanced price and quality"
-msgstr ""
-
-#: includes/class-aipt-settings.php:16
-msgid "Claude Sonnet 4.6 — premium quality (most expensive)"
+#: includes/class-aipt-settings.php:33
+msgid "GPT-6 Sol — premium quality (most expensive)"
 msgstr ""
 
 #: includes/class-aipt-settings.php:58 includes/class-aipt-settings.php:59
@@ -409,19 +405,15 @@ msgid "Price per article"
 msgstr ""
 
 #: includes/class-aipt-settings.php
-msgid "The fastest and cheapest. A good fit when you translate a lot of pages at once."
+msgid "Recommended default: the best quality for the money, fast and very cheap."
 msgstr ""
 
 #: includes/class-aipt-settings.php
-msgid "Recommended default: excellent quality at a low price."
+msgid "Natural, idiomatic phrasing from another provider (Google) — a good backup if OpenAI is unavailable."
 msgstr ""
 
 #: includes/class-aipt-settings.php
-msgid "A solid alternative with balanced price and quality."
-msgstr ""
-
-#: includes/class-aipt-settings.php
-msgid "Maximum accuracy — for important pages where every word matters."
+msgid "The most natural and precise translations — for important pages such as marketing and legal texts."
 msgstr ""
 
 #: includes/class-aipt-settings.php

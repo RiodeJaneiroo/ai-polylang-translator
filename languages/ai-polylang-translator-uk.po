@@ -83,21 +83,17 @@ msgstr "Модель завершила запит без текстової в�
 msgid "Request ID: %s."
 msgstr "ID запиту: %s."
 
-#: includes/class-aipt-settings.php:13
-msgid "Gemini 2.5 Flash Lite — ultra cheap, fastest"
-msgstr "Gemini 2.5 Flash Lite — наддешева, найшвидша"
+#: includes/class-aipt-settings.php:19
+msgid "GPT-6 Luna — recommended, best value"
+msgstr "GPT-6 Luna — рекомендована, найкраще співвідношення ціни та якості"
 
-#: includes/class-aipt-settings.php:14
-msgid "Gemini 2.5 Flash — recommended, best value for translation"
-msgstr "Gemini 2.5 Flash — рекомендована, найкраще співвідношення ціни та якості для перекладу"
+#: includes/class-aipt-settings.php:26
+msgid "Gemini 3.8 Flash — natural phrasing, non-OpenAI alternative"
+msgstr "Gemini 3.8 Flash — природні формулювання, альтернатива OpenAI"
 
-#: includes/class-aipt-settings.php:15
-msgid "GPT-4.1 mini — balanced price and quality"
-msgstr "GPT-4.1 mini — баланс ціни та якості"
-
-#: includes/class-aipt-settings.php:16
-msgid "Claude Sonnet 4.6 — premium quality (most expensive)"
-msgstr "Claude Sonnet 4.6 — преміальна якість (найдорожча)"
+#: includes/class-aipt-settings.php:33
+msgid "GPT-6 Sol — premium quality (most expensive)"
+msgstr "GPT-6 Sol — преміальна якість (найдорожча)"
 
 #: includes/class-aipt-settings.php:58 includes/class-aipt-settings.php:59
 msgid "AI Translator"
@@ -410,20 +406,16 @@ msgid "Price per article"
 msgstr "Ціна за статтю"
 
 #: includes/class-aipt-settings.php
-msgid "The fastest and cheapest. A good fit when you translate a lot of pages at once."
-msgstr "Найшвидша та найдешевша. Гарний вибір, коли потрібно перекласти одразу багато сторінок."
+msgid "Recommended default: the best quality for the money, fast and very cheap."
+msgstr "Рекомендована за замовчуванням: найкраща якість за свої гроші, швидка й дуже дешева."
 
 #: includes/class-aipt-settings.php
-msgid "Recommended default: excellent quality at a low price."
-msgstr "Рекомендована за замовчуванням: відмінна якість за низькою ціною."
+msgid "Natural, idiomatic phrasing from another provider (Google) — a good backup if OpenAI is unavailable."
+msgstr "Природні, живі формулювання від іншого провайдера (Google) — добрий запасний варіант, якщо OpenAI недоступний."
 
 #: includes/class-aipt-settings.php
-msgid "A solid alternative with balanced price and quality."
-msgstr "Надійна альтернатива з балансом ціни та якості."
-
-#: includes/class-aipt-settings.php
-msgid "Maximum accuracy — for important pages where every word matters."
-msgstr "Максимальна точність — для важливих сторінок, де важливе кожне слово."
+msgid "The most natural and precise translations — for important pages such as marketing and legal texts."
+msgstr "Найприродніші та найточніші переклади — для важливих сторінок, як-от маркетингові та юридичні тексти."
 
 #: includes/class-aipt-settings.php
 msgid "Prices are approximate, for a typical article of about 3,000 characters. Longer pages cost proportionally more; the exact amount for every translation is shown in the cost log above."

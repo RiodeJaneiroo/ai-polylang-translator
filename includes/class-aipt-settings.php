@@ -10,32 +10,30 @@ class AIPT_Settings {
 
 	// Single source of truth for supported models: select labels, the
 	// client-facing cheat sheet and sanitization all derive from this list.
-	// Prices are approximate USD per ~3,000-character article.
+	// Prices are approximate USD per ~3,000-character article; 'reasoning' is
+	// the AI Gateway reasoning.effort sent with every request for that model.
 	public static function model_catalog(): array {
 		return array(
-			'google/gemini-2.5-flash-lite' => array(
-				'name'  => 'Gemini 2.5 Flash Lite',
-				'label' => __('Gemini 2.5 Flash Lite — ultra cheap, fastest', 'ai-polylang-translator'),
-				'desc'  => __('The fastest and cheapest. A good fit when you translate a lot of pages at once.', 'ai-polylang-translator'),
-				'price' => '$0.001',
+			'openai/gpt-6-luna' => array(
+				'name'      => 'GPT-6 Luna',
+				'label'     => __('GPT-6 Luna — recommended, best value', 'ai-polylang-translator'),
+				'desc'      => __('Recommended default: the best quality for the money, fast and very cheap.', 'ai-polylang-translator'),
+				'price'     => '$0.001',
+				'reasoning' => 'none',
 			),
-			'google/gemini-2.5-flash' => array(
-				'name'  => 'Gemini 2.5 Flash',
-				'label' => __('Gemini 2.5 Flash — recommended, best value for translation', 'ai-polylang-translator'),
-				'desc'  => __('Recommended default: excellent quality at a low price.', 'ai-polylang-translator'),
-				'price' => '$0.004',
+			'google/gemini-3.8-flash' => array(
+				'name'      => 'Gemini 3.8 Flash',
+				'label'     => __('Gemini 3.8 Flash — natural phrasing, non-OpenAI alternative', 'ai-polylang-translator'),
+				'desc'      => __('Natural, idiomatic phrasing from another provider (Google) — a good backup if OpenAI is unavailable.', 'ai-polylang-translator'),
+				'price'     => '$0.0075',
+				'reasoning' => 'low',
 			),
-			'openai/gpt-4.1-mini' => array(
-				'name'  => 'GPT-4.1 mini',
-				'label' => __('GPT-4.1 mini — balanced price and quality', 'ai-polylang-translator'),
-				'desc'  => __('A solid alternative with balanced price and quality.', 'ai-polylang-translator'),
-				'price' => '$0.003',
-			),
-			'anthropic/claude-sonnet-4.6' => array(
-				'name'  => 'Claude Sonnet 4.6',
-				'label' => __('Claude Sonnet 4.6 — premium quality (most expensive)', 'ai-polylang-translator'),
-				'desc'  => __('Maximum accuracy — for important pages where every word matters.', 'ai-polylang-translator'),
-				'price' => '$0.03',
+			'openai/gpt-6-sol' => array(
+				'name'      => 'GPT-6 Sol',
+				'label'     => __('GPT-6 Sol — premium quality (most expensive)', 'ai-polylang-translator'),
+				'desc'      => __('The most natural and precise translations — for important pages such as marketing and legal texts.', 'ai-polylang-translator'),
+				'price'     => '$0.02',
+				'reasoning' => 'none',
 			),
 		);
 	}
@@ -59,7 +57,7 @@ class AIPT_Settings {
 
 	public static function defaults(): array {
 		return array(
-			'model'           => 'google/gemini-2.5-flash',
+			'model'           => 'openai/gpt-6-luna',
 			'post_types'      => array('page', 'post'),
 			'field_overrides' => array(),
 			'site_context'    => '',

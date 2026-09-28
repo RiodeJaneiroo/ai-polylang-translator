@@ -130,9 +130,12 @@ class AIPT_Gateway {
 			'max_tokens'  => (int) ($overrides['max_tokens'] ?? 16000),
 			'stream'      => false,
 		);
-		if (str_starts_with($model, 'google/gemini-2.5-')) {
+		// Pin reasoning effort per model: the default burns thousands of billed
+		// reasoning tokens, and Gemini 3.x can't disable thinking ('low' is its minimum).
+		$reasoning = AIPT_Settings::model_catalog()[$model]['reasoning'] ?? '';
+		if ($reasoning !== '') {
 			$body['reasoning'] = array(
-				'effort'  => 'none',
+				'effort'  => $reasoning,
 				'exclude' => true,
 			);
 		}

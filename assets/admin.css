@@ -63,6 +63,21 @@ details.aipt-panel summary:hover .aipt-panel-title {
 	color: #1d2327;
 }
 
+/* Cost log: scrollable with sticky header */
+.aipt-usage-log {
+	max-height: 420px;
+	overflow-y: auto;
+	margin-top: 8px;
+}
+
+.aipt-usage-log thead th {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	background: #fff;
+	box-shadow: inset 0 -1px 0 #c3c4c7;
+}
+
 /* Existing metabox styles */
 .aipt-row {
 	padding: 8px 0;

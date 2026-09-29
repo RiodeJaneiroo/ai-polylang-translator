@@ -396,6 +396,13 @@ class AIPT_Settings {
 				<?php if (empty($log)) : ?>
 					<p><?php esc_html_e('No translations yet. Costs will appear here after the first translation.', 'ai-polylang-translator'); ?></p>
 				<?php else : ?>
+					<p class="description">
+						<?php
+						/* translators: %d: maximum number of cost log entries kept */
+						echo esc_html(sprintf(__('Showing the latest %d entries; totals cover all translations.', 'ai-polylang-translator'), AIPT_Usage::MAX_ENTRIES));
+						?>
+					</p>
+					<div class="aipt-usage-log">
 					<table class="widefat striped">
 						<thead>
 							<tr>
@@ -436,6 +443,7 @@ class AIPT_Settings {
 							<?php endforeach; ?>
 						</tbody>
 					</table>
+					</div>
 				<?php endif; ?>
 			</div>
 		<?php

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.1
+
+### Changed
+
+- The cost log keeps the latest 100 entries (was 50). Totals still cover all translations.
+- Settings > AI Translator: the cost log table scrolls (max height 420px) with a sticky header, and a line above it states how many entries are shown.
+
 ## 1.5.0
 
 ### Added

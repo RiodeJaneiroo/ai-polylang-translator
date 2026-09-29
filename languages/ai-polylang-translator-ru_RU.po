@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: AI Polylang Translator 1.5.0\n"
+"Project-Id-Version: AI Polylang Translator 1.5.1\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-06-11 00:00+0000\n"
 "PO-Revision-Date: 2026-06-11 00:00+0000\n"
@@ -214,6 +214,12 @@ msgstr "Потрачено сегодня"
 #: includes/class-aipt-settings.php:299
 msgid "Translations"
 msgstr "Переводов"
+
+#. translators: %d: maximum number of cost log entries kept
+#: includes/class-aipt-settings.php:307
+#, php-format
+msgid "Showing the latest %d entries; totals cover all translations."
+msgstr "Показаны последние %d записей; итоги — за всё время."
 
 #: includes/class-aipt-settings.php:305
 msgid "No translations yet. Costs will appear here after the first translation."

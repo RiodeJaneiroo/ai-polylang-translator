@@ -9,7 +9,7 @@ class AIPT_Usage {
 
 	const OPTION_LOG    = 'aipt_usage_log';    // entries newest first, capped at MAX_ENTRIES.
 	const OPTION_TOTALS = 'aipt_usage_totals';
-	const MAX_ENTRIES   = 50;
+	const MAX_ENTRIES   = 100;
 
 	// Record (or incrementally update) usage for one batch of a job.
 	// $delta keys: tokens_in (int), tokens_out (int), cost (float).
@@ -84,7 +84,7 @@ class AIPT_Usage {
 				);
 				array_unshift($log, $new_entry);
 				// Known limitation: if this job's entry was already evicted from the
-				// 50-entry cap between batches, a second entry is created and 'jobs'
+				// 100-entry cap between batches, a second entry is created and 'jobs'
 				// is incremented again. Token/cost sums remain correct.
 				$log = array_slice($log, 0, self::MAX_ENTRIES);
 			}

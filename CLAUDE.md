@@ -58,7 +58,7 @@ ACF values are read raw (`format_value = false`) — repeater/flexible rows keye
 ### Concurrency & state
 
 - `AIPT_Job` implements locks as `INSERT IGNORE` rows in `wp_options` (mirroring `WP_Upgrader::create_lock`), with stale-takeover by timestamp, because `add_option()` is not atomic. Lock reads bypass the object cache deliberately.
-- `AIPT_Usage` (cost log + totals in options, capped at 50 entries) serialises concurrent batch writes with a global named lock; entries are idempotent per `job_id` (subsequent batches accumulate into the existing row).
+- `AIPT_Usage` (cost log + totals in options, capped at 100 entries) serialises concurrent batch writes with a global named lock; entries are idempotent per `job_id` (subsequent batches accumulate into the existing row).
 - Pair lock (`AIPT_Job::acquire_pair_lock`, row `aipt_pair_lock_<group_id>_<lang>`, group_id = smallest post ID in the source's translation group): `translate_post()` holds it for a whole record (`RECORD_PAIR_LOCK_TTL`, 30 min, refreshed after each batch; holder `cli` or `auto`), the editor only around the write in finalize (5 min). The row stores the holder's TTL and role, so contenders apply the holder's expiry and the editor can say who is busy.
 - Jobs without the `usage_recorded_per_batch` marker are pre-1.3 jobs and keep finalize-time usage aggregation — don't break that upgrade path.
 

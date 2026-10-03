@@ -42,7 +42,7 @@ class AIPT_Usage {
 		// is taken over. Exhaustion therefore indicates a storage failure that prevents
 		// option persistence altogether.
 		if (!$lock_acquired) {
-			error_log('AI Polylang Translator: could not acquire the usage log lock.');
+			error_log('AI Translator for Polylang & WPML: could not acquire the usage log lock.');
 			return;
 		}
 

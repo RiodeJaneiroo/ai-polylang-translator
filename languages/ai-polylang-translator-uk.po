@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: AI Polylang Translator 1.5.1\n"
+"Project-Id-Version: AI Translator for Polylang & WPML 1.6.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-06-11 00:00+0000\n"
 "PO-Revision-Date: 2026-06-11 00:00+0000\n"
@@ -12,10 +12,6 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "X-Generator: manual\n"
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<12 || n%100>14) ? 1 : 2);\n"
-
-#: ai-polylang-translator.php:48
-msgid "AI Polylang Translator requires the Polylang plugin to be active."
-msgstr "AI Polylang Translator: для роботи плагіна потрібен активний Polylang."
 
 #: includes/class-aipt-acf-schema.php:181
 msgid "No ACF field groups found."
@@ -114,10 +110,6 @@ msgstr "Недостатньо прав."
 #: includes/class-aipt-settings.php:159
 msgid "No API key set."
 msgstr "Ключ не задано."
-
-#: includes/class-aipt-settings.php:176
-msgid "AI Translator (Polylang)"
-msgstr "AI Перекладач (Polylang)"
 
 #: includes/class-aipt-settings.php:181
 msgid "API"
@@ -293,10 +285,6 @@ msgstr "Спершу збережіть запис."
 msgid "Enter an API key on the <a href=\"%s\">settings page</a>."
 msgstr "Вкажіть API-ключ на <a href=\"%s\">сторінці налаштувань</a>."
 
-#: includes/class-aipt-metabox.php:73
-msgid "Set the post language (Polylang) and save the post first."
-msgstr "Спершу задайте мову запису (Polylang) і збережіть його."
-
 #: includes/class-aipt-metabox.php:94
 msgid "Filled fields are kept. New flexible content sections are added and translated, existing sections are kept; repeater blocks with a different number of rows are replaced in full."
 msgstr "Заповнені поля зберігаються. Нові секції flexible content додаються та перекладаються, наявні секції зберігаються; блоки repeater з іншою кількістю рядків замінюються повністю."
@@ -326,10 +314,6 @@ msgstr "Цей тип запису не ввімкнено в налаштува
 #: includes/class-aipt-pipeline.php
 msgid "API key is not set."
 msgstr "API-ключ не задано."
-
-#: includes/class-aipt-pipeline.php
-msgid "The post has no Polylang language set."
-msgstr "У запису не задано мову Polylang."
 
 #: includes/class-aipt-pipeline.php
 msgid "Invalid target language."
@@ -470,3 +454,177 @@ msgstr "Мови"
 #: includes/class-aipt-pipeline.php
 msgid "The translation already exists."
 msgstr "Переклад уже існує."
+
+#: ai-polylang-translator.php
+msgid "AI Translator for Polylang & WPML requires the Polylang or WPML plugin to be active."
+msgstr "AI Translator for Polylang & WPML: для роботи плагіна потрібен активний Polylang або WPML."
+
+#: ai-polylang-translator.php
+msgid "Polylang and WPML are both active; AI Translator cannot translate until one of them is deactivated."
+msgstr "Активні і Polylang, і WPML: AI Перекладач не може перекладати, доки один із них не буде деактивовано."
+
+#. translators: %s: multilingual plugin name, e.g. Polylang
+#: includes/class-aipt-settings.php
+msgid "AI Translator (%s)"
+msgstr "AI Перекладач (%s)"
+
+#: includes/class-aipt-settings.php
+msgid "Status"
+msgstr "Статус"
+
+#: includes/class-aipt-settings.php
+msgid "Enable AI Translator"
+msgstr "Увімкнути AI Перекладач"
+
+#: includes/class-aipt-settings.php
+msgid "Turn off to park the plugin while another translation tool is used: the AI Translation box, automatic translation and the WP-CLI commands stop working; these settings and the cost log stay available. Turning it back on needs no other changes."
+msgstr "Вимкніть, щоб призупинити плагін, поки використовується інший інструмент перекладу: блок «AI-переклад», автоматичний переклад і команди WP-CLI перестають працювати; ці налаштування та журнал витрат залишаються доступними. Для повторного ввімкнення більше нічого змінювати не потрібно."
+
+#. translators: %s: multilingual plugin name, e.g. Polylang
+#: includes/class-aipt-metabox.php
+msgid "Set the post language (%s) and save the post first."
+msgstr "Спершу задайте мову запису (%s) і збережіть його."
+
+#: includes/class-aipt-metabox.php
+msgid "AI Translator is disabled in Settings."
+msgstr "AI Перекладач вимкнено в налаштуваннях."
+
+#. translators: %s: multilingual plugin name, e.g. Polylang
+#: includes/class-aipt-job-builder.php
+msgid "The post has no language set in %s."
+msgstr "У запису не задано мову в %s."
+
+#. translators: %s: multilingual plugin name, e.g. WPML
+#: includes/class-aipt-record.php
+msgid "A translation of this post is already in progress in %s."
+msgstr "Переклад цього запису вже виконується в %s."
+
+#. translators: %s: multilingual plugin name, e.g. Polylang
+#: includes/class-aipt-pipeline.php
+msgid "This translation job was not prepared with %s. Start the translation again."
+msgstr "Це завдання перекладу було підготовлено не з %s. Запустіть переклад заново."
+
+#: includes/class-aipt-writer.php
+msgid "The translation into this language changed after the job was prepared. Please start the translation again."
+msgstr "Переклад цією мовою змінився після підготовки завдання. Запустіть переклад заново."
+
+#. translators: 1: translation post ID, 2: error message
+#: includes/class-aipt-writer.php
+msgid "Translation post #%1$d was updated but could not be linked: %2$s"
+msgstr "Запис перекладу #%1$d оновлено, але його не вдалося пов’язати: %2$s"
+
+#. translators: 1: translation post ID, 2: error message
+#: includes/class-aipt-writer.php
+msgid "Translation post #%1$d was created but could not be linked: %2$s"
+msgstr "Запис перекладу #%1$d створено, але його не вдалося пов’язати: %2$s"
+
+#. translators: 1: translation post ID, 2: error message
+#: includes/class-aipt-writer.php
+#, php-format
+msgid "Translation post #%1$d was created and linked, but the final step failed: %2$s"
+msgstr "Запис перекладу #%1$d створено й пов’язано, але останній крок не вдався: %2$s"
+
+#. translators: 1: multilingual plugin name, e.g. Polylang, 2: error message
+#: includes/class-aipt-writer.php
+msgid "The translation could not be linked by %1$s and the created post was removed: %2$s"
+msgstr "%1$s не вдалося пов’язати переклад, створений запис видалено: %2$s"
+
+#. translators: 1: translation post ID, 2: source post ID, 3: language code
+#: includes/lang/class-aipt-lang-polylang.php
+msgid "Polylang did not link post #%1$d as the %3$s translation of post #%2$d."
+msgstr "Polylang не пов’язав запис #%1$d як переклад (%3$s) запису #%2$d."
+
+#. translators: 1: translation term ID, 2: source term ID, 3: language code
+#: includes/lang/class-aipt-lang-polylang.php
+msgid "Polylang did not link term #%1$d as the %3$s translation of term #%2$d."
+msgstr "Polylang не пов’язав термін #%1$d як переклад (%3$s) терміна #%2$d."
+
+#: includes/class-aipt-settings-advanced.php
+msgid "Extra meta keys to translate"
+msgstr "Додаткові мета-ключі для перекладу"
+
+#. translators: %s: example meta key
+#: includes/class-aipt-settings-advanced.php
+msgid "Custom fields with plain text to translate, one meta key per line (e.g. %s). Only text values are translated; Yoast SEO fields are handled separately."
+msgstr "Користувацькі поля зі звичайним текстом для перекладу, по одному мета-ключу в рядку (наприклад, %s). Перекладаються лише текстові значення; поля Yoast SEO обробляються окремо."
+
+#: includes/lang/class-aipt-lang-wpml.php
+msgid "WPML's save handler could not be suspended, so WPML may have assigned the translation to the wrong language. The translation was not linked."
+msgstr "Не вдалося призупинити обробник збереження WPML, тому WPML міг призначити перекладу неправильну мову. Переклад не пов’язано."
+
+#: includes/lang/class-aipt-lang-wpml.php
+msgid "the source post has no WPML language or is already in the target language"
+msgstr "вихідний запис не має мови WPML або вже має цільову мову"
+
+#: includes/lang/class-aipt-lang-wpml.php
+msgid "the post does not resolve as the translation after linking"
+msgstr "після зв’язування запис не визначається як переклад"
+
+#: includes/lang/class-aipt-lang-wpml.php
+msgid "the link did not survive the WPML/WCML sync"
+msgstr "зв’язок не зберігся після синхронізації WPML/WCML"
+
+#. translators: %d: post ID
+#: includes/lang/class-aipt-lang-wpml.php
+msgid "post #%d is already the translation in this language"
+msgstr "запис #%d уже є перекладом цією мовою"
+
+#: includes/lang/class-aipt-lang-wpml.php
+msgid "WPML has translation work in progress for this language"
+msgstr "у WPML уже триває робота над перекладом цією мовою"
+
+#: includes/lang/class-aipt-lang-wpml.php
+msgid "WPML started translation work for this language while the translation was being written; its WPML translation status was not changed."
+msgstr "Під час запису перекладу у WPML почалася робота над перекладом цією мовою; статус перекладу у WPML не змінено."
+
+#: includes/lang/class-aipt-lang-wpml.php
+msgid "the post already belongs to a translation group"
+msgstr "запис уже входить до групи перекладів"
+
+#. translators: 1: translation post ID, 2: language code, 3: reason
+#: includes/lang/class-aipt-lang-wpml.php
+msgid "WPML did not link post #%1$d as the %2$s translation: %3$s."
+msgstr "WPML не пов’язав запис #%1$d як переклад (%2$s): %3$s."
+
+#. translators: 1: translation term ID, 2: source term ID, 3: language code
+#: includes/lang/class-aipt-lang-wpml.php
+msgid "WPML did not link term #%1$d as the %3$s translation of term #%2$d."
+msgstr "WPML не пов’язав термін #%1$d як переклад (%3$s) терміна #%2$d."
+
+#. translators: %s: comma-separated WPML API names
+#: includes/lang/class-aipt-lang-wpml-tm.php
+msgid "AI Translator cannot write with this WPML version: %s not available."
+msgstr "AI Перекладач не може записувати з цією версією WPML: недоступно %s."
+
+#. translators: %s: hook name
+#: includes/lang/class-aipt-lang-wpml-tm.php
+msgid "WooCommerce Multilingual is active but its product sync (%s) is not available."
+msgstr "WooCommerce Multilingual активний, але його синхронізація товарів (%s) недоступна."
+
+#: includes/class-aipt-settings-advanced.php
+msgid "WPML translation editor"
+msgstr "Редактор перекладів WPML"
+
+#: includes/class-aipt-settings-advanced.php
+msgid "Use the WordPress editor for translations written by AI Translator"
+msgstr "Використовувати редактор WordPress для перекладів, створених AI Перекладачем"
+
+#: includes/class-aipt-settings-advanced.php
+msgid "When the first AI translation of a post is written, the original post is switched to WPML's native-editor mode, so opening the translation in wp-admin does not redirect to WPML's translation editor."
+msgstr "Коли записується перший AI-переклад запису, оригінал перемикається в режим вбудованого редактора WPML, щоб під час відкриття перекладу в адмінці не відбувалося перенаправлення до редактора перекладів WPML."
+
+#: includes/lang/class-aipt-lang-wpml-sync.php
+msgid "WPML's save handler could not be suspended; nothing was written."
+msgstr "Не вдалося призупинити обробник збереження WPML; нічого не записано."
+
+#. translators: 1: translation post ID, 2: number of content parts
+#: includes/class-aipt-blocks.php
+#, php-format
+msgid "Translation #%1$d was saved, but some content parts (%2$d) kept the original text because their block markup could not be protected or came back changed. Translate the post again or edit those parts manually."
+msgstr "Переклад #%1$d збережено, але частина вмісту (%2$d фрагм.) залишилася мовою оригіналу, бо розмітку блоків не вдалося захистити або вона повернулася зміненою. Перекладіть запис заново або виправте ці фрагменти вручну."
+
+#. translators: 1: translation post ID, 2: number of content parts
+#: includes/class-aipt-blocks.php
+#, php-format
+msgid "Translation #%1$d was saved and left as a draft: some content parts (%2$d) kept the original text because their block markup could not be protected or came back changed. Translate the post again or edit those parts manually."
+msgstr "Переклад #%1$d збережено й залишено чернеткою: частина вмісту (%2$d фрагм.) залишилася мовою оригіналу, бо розмітку блоків не вдалося захистити або вона повернулася зміненою. Перекладіть запис заново або виправте ці фрагменти вручну."

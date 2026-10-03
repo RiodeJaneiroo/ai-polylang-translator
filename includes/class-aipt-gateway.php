@@ -44,6 +44,10 @@ class AIPT_Gateway {
 			$source_name,
 			$target_name
 		);
+		// Only when a value carries block tokens (AIPT_Blocks), so other prompts are unchanged.
+		if (AIPT_Blocks::has_tokens($map)) {
+			$system .= ' ' . AIPT_Blocks::PROMPT_RULE;
+		}
 
 		$messages = array(
 			array('role' => 'system', 'content' => $system),

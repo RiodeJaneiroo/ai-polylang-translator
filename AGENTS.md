@@ -6,6 +6,7 @@ This repository is a standalone WordPress plugin.
 
 - `ai-polylang-translator.php` is the bootstrap: plugin metadata, constants, dependency checks, and class loading.
 - `includes/` contains one responsibility per `AIPT_*` class. Settings and metabox classes own admin UI/AJAX; extractor, gateway, job, and writer classes implement the translation pipeline.
+- `includes/lang/` is the multilingual adapter (`AIPT_Lang` interface, loader, Polylang implementation); it is the only place allowed to call Polylang/WPML, everything else uses `aipt_lang()`.
 - `assets/` contains dependency-free admin JavaScript and CSS.
 - `uninstall.php` removes the plugin options.
 
@@ -13,7 +14,7 @@ Keep new PHP behavior in a focused class under `includes/`; keep the bootstrap s
 
 ## Development & Validation Commands
 
-There is no Composer, npm, or bundled test runner. Work in a local WordPress installation with PHP 8.1+, WordPress 6.0+, and Polylang active. ACF and Yoast SEO are optional integration targets.
+There is no Composer, npm, or bundled test runner. Work in a local WordPress installation with PHP 8.1+, WordPress 6.0+, and Polylang or WPML active (not both; test changes on both). ACF, Yoast SEO and WooCommerce are optional integration targets.
 
 ```bash
 php -l ai-polylang-translator.php

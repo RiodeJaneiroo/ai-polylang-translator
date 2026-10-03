@@ -34,11 +34,11 @@ class AIPT_Auto {
 	const DELAY     = 2 * MINUTE_IN_SECONDS;
 
 	public static function register(): void {
-		// Runs after save_post and after REST terms/meta, so Polylang has set the
-		// language (block editor, classic editor, and wp_publish_post() for future posts).
+		// Runs after save_post and after REST terms/meta, so the multilingual plugin has
+		// set the language (block editor, classic editor, and wp_publish_post() for
+		// future posts). The marker meta filter is the adapter's (register_hooks()).
 		add_action('wp_after_insert_post', array(__CLASS__, 'on_after_insert_post'), 10, 4);
 		add_action(self::HOOK, array(__CLASS__, 'run'), 10, 2);
-		add_filter('pll_copy_post_metas', array(__CLASS__, 'exclude_meta'));
 	}
 
 	/**
@@ -62,6 +62,11 @@ class AIPT_Auto {
 	 */
 	public static function run($post_id, $user_id = 0): void {
 		$post_id  = (int) $post_id;
+		// Parked: events queued before the switch was turned off are dropped.
+		if (!AIPT_Settings::enabled()) {
+			self::log($post_id, '', 'skipped: AI Translator is disabled in Settings');
+			return;
+		}
 		$previous = get_current_user_id();
 		try {
 			self::translate($post_id, (int) $user_id);
@@ -74,8 +79,9 @@ class AIPT_Auto {
 		}
 	}
 
-	// Polylang's custom-field sync must not copy the markers to other languages: a
-	// marker copied onto an unpublished source would block its auto-translation.
+	// The multilingual plugin's custom-field sync must not copy the markers to other
+	// languages: a marker copied onto an unpublished source would block its
+	// auto-translation. Hooked by the adapter (AIPT_Lang::register_hooks()).
 	public static function exclude_meta($keys) {
 		return is_array($keys) ? array_values(array_diff($keys, array(self::MARKER, self::USER_META))) : $keys;
 	}
@@ -89,13 +95,14 @@ class AIPT_Auto {
 		if ($post_before instanceof WP_Post && $post_before->post_status === $post->post_status) {
 			return;
 		}
-		if ((defined('WP_IMPORTING') && WP_IMPORTING) || AIPT_Pipeline::is_writing() || !AIPT_Settings::auto_enabled()) {
+		if ((defined('WP_IMPORTING') && WP_IMPORTING) || AIPT_Pipeline::is_writing()
+			|| !AIPT_Settings::auto_enabled() || !AIPT_Settings::enabled()) {
 			return;
 		}
 		$settings = AIPT_Settings::get();
 		$post_id  = (int) $post->ID;
 		if (!in_array($post->post_type, $settings['post_types'], true)
-			|| (string) pll_get_post_language($post_id) !== (string) pll_default_language()
+			|| (string) aipt_lang()->post_language($post_id) !== aipt_lang()->default_language()
 			|| metadata_exists('post', $post_id, self::MARKER)) {
 			return;
 		}
@@ -108,7 +115,7 @@ class AIPT_Auto {
 		}
 
 		// Unique add: a concurrent save that got here too loses.
-		if (!self::missing_languages($post_id, $settings) || !add_post_meta($post_id, self::MARKER, time(), true)) {
+		if (!self::has_missing_language($post_id, $settings) || !add_post_meta($post_id, self::MARKER, time(), true)) {
 			return;
 		}
 		$scheduled = wp_schedule_single_event(time() + self::DELAY, self::HOOK, array($post_id, self::user_for($post)), true);
@@ -132,13 +139,13 @@ class AIPT_Auto {
 	private static function translate(int $post_id, int $user_id): void {
 		$post     = get_post($post_id);
 		$settings = AIPT_Settings::get();
-		$from     = (string) pll_default_language();
+		$from     = aipt_lang()->default_language();
 
 		if (!$post || $post->post_status !== 'publish') {
 			self::log($post_id, '', 'skipped: the post no longer exists or is not published');
 			return;
 		}
-		if ((string) pll_get_post_language($post_id) !== $from) {
+		if ((string) aipt_lang()->post_language($post_id) !== $from) {
 			self::log($post_id, '', 'skipped: the post is no longer in the default language');
 			return;
 		}
@@ -158,8 +165,9 @@ class AIPT_Auto {
 			return;
 		}
 
+		// translate_into() skips languages that already have a real translation.
 		$terms = AIPT_Record::translated_terms($post_id, $post->post_type);
-		foreach (self::missing_languages($post_id, $settings) as $lang) {
+		foreach (AIPT_Settings_Auto::languages($settings) as $lang) {
 			if (!self::translate_into($post, $from, $lang, $terms)) {
 				return;
 			}
@@ -184,7 +192,7 @@ class AIPT_Auto {
 		}
 		if ($check['status'] !== '') {
 			self::log($post->ID, $lang, $check['status'] . ': ' . $check['message']);
-			return false;
+			return $check['status'] === 'skipped_pending';
 		}
 		$parent = AIPT_Record::missing_parent($post, $lang);
 		if ($parent) {
@@ -214,9 +222,9 @@ class AIPT_Auto {
 			'keep_date'     => true,
 		));
 		if (is_wp_error($result)) {
-			$locked = $result->get_error_code() === 'aipt_pair_locked';
-			self::log($post->ID, $lang, ($locked ? 'skipped_locked: ' : $result->get_error_code() . ': ') . $result->get_error_message());
-			return $locked;
+			$skipped = AIPT_Record::skip_status($result);
+			self::log($post->ID, $lang, ($skipped ?? $result->get_error_code()) . ': ' . $result->get_error_message());
+			return $skipped !== null;
 		}
 		if ($result['warning'] !== '') {
 			self::log($post->ID, $lang, sprintf('translation #%d written with a warning: %s', $result['target_id'], $result['warning']));
@@ -243,11 +251,15 @@ class AIPT_Auto {
 		return $failure;
 	}
 
-	private static function missing_languages(int $post_id, array $settings): array {
-		return array_values(array_filter(
-			AIPT_Settings_Auto::languages($settings),
-			static fn(string $lang): bool => !pll_get_post($post_id, $lang)
-		));
+	// Scheduling only: whether a selected language has no real translation (none, a
+	// duplicate that is translated over, or pending work that the event skips and logs).
+	private static function has_missing_language(int $post_id, array $settings): bool {
+		foreach (AIPT_Settings_Auto::languages($settings) as $lang) {
+			if (aipt_lang()->translation_state($post_id, $lang)['state'] !== 'translated') {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static function log(int $post_id, string $lang, string $message): void {

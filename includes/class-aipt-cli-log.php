@@ -15,6 +15,8 @@ class AIPT_CLI_Log {
 	private $chars   = 0;
 	private $started = 0;
 	private $dry_run = false;
+	// Set by abort(): why the run ended early.
+	private $aborted = '';
 
 	// Opens --log (required unless dry run) and writes the header line.
 	public function __construct(array $assoc_args, string $command, bool $dry_run) {
@@ -89,6 +91,13 @@ class AIPT_CLI_Log {
 		$this->write_line(implode("\t", $fields));
 	}
 
+	// Ends the run early: summary of the records so far, then exit status 1.
+	public function abort(string $reason): void {
+		$this->aborted = $reason;
+		$this->write_line('# ' . wp_date('c') . ' Stopped: ' . $reason);
+		$this->finish();
+	}
+
 	public function finish(): void {
 		$elapsed = time() - $this->started;
 		$counts  = array();
@@ -114,6 +123,10 @@ class AIPT_CLI_Log {
 			$this->handle = null;
 		}
 
+		if ($this->aborted !== '') {
+			WP_CLI::warning($summary);
+			WP_CLI::error($this->aborted);
+		}
 		// Non-zero exit when any record failed, so scripts and schedulers notice.
 		$errors = (int) ($this->counts['error'] ?? 0);
 		if ($errors) {

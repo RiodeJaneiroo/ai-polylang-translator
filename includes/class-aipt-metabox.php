@@ -16,6 +16,9 @@ class AIPT_Metabox {
 	}
 
 	public function register(): void {
+		if (!AIPT_Settings::enabled()) {
+			return;
+		}
 		$settings = AIPT_Settings::get();
 		foreach ($settings['post_types'] as $post_type) {
 			add_meta_box('aipt_metabox', __('AI Translation', 'ai-polylang-translator'), array($this, 'render'), $post_type, 'side');
@@ -23,7 +26,7 @@ class AIPT_Metabox {
 	}
 
 	public function enqueue(string $hook): void {
-		if (!in_array($hook, array('post.php', 'post-new.php'), true)) {
+		if (!in_array($hook, array('post.php', 'post-new.php'), true) || !AIPT_Settings::enabled()) {
 			return;
 		}
 		$screen   = get_current_screen();
@@ -68,40 +71,50 @@ class AIPT_Metabox {
 			return;
 		}
 
-		$source_lang = pll_get_post_language($post->ID);
-		if (!$source_lang) {
-			echo '<p>' . esc_html__('Set the post language (Polylang) and save the post first.', 'ai-polylang-translator') . '</p>';
+		$source_lang = (string) aipt_lang()->post_language($post->ID);
+		if ($source_lang === '') {
+			echo '<p>' . esc_html(sprintf(
+				/* translators: %s: multilingual plugin name, e.g. Polylang */
+				__('Set the post language (%s) and save the post first.', 'ai-polylang-translator'),
+				AIPT_Lang_Loader::label()
+			)) . '</p>';
 			return;
 		}
 
 		echo '<div class="aipt-rows">';
-		foreach (pll_languages_list(array('fields' => '')) as $language) {
-			if ($language->slug === $source_lang) {
+		foreach (aipt_lang()->languages() as $language) {
+			if ($language['code'] === $source_lang) {
 				continue;
 			}
-			$existing = pll_get_post($post->ID, $language->slug);
-			$existing = $existing ? (int) $existing : 0;
+			$state    = aipt_lang()->translation_state($post->ID, $language['code']);
+			$existing = AIPT_Record::existing_target($state);
 
-			echo '<div class="aipt-row" data-lang="' . esc_attr($language->slug) . '" data-existing="' . esc_attr($existing ?: '') . '">';
-			echo '<strong>' . esc_html($language->name) . '</strong>';
+			echo '<div class="aipt-row" data-lang="' . esc_attr($language['code']) . '" data-existing="' . esc_attr($existing ?: '') . '">';
+			echo '<strong>' . esc_html($language['name']) . '</strong>';
 			echo '<div class="aipt-actions">';
-			if ($existing) {
-				$edit_link = get_edit_post_link($existing);
+			if ($state['state'] === 'pending') {
+				echo esc_html(AIPT_Record::pending_error()->get_error_message());
+			} else {
+				$edit_link = $existing ? get_edit_post_link($existing) : '';
 				if ($edit_link) {
 					echo '<a href="' . esc_url($edit_link) . '">' . esc_html__('Open translation', 'ai-polylang-translator') . '</a> ';
 				}
-				echo '<label class="aipt-safe-option" title="'
-					. esc_attr__('Filled fields are kept. New flexible content sections are added and translated, existing sections are kept; repeater blocks with a different number of rows are replaced in full.', 'ai-polylang-translator')
-					. '"><input type="checkbox" class="aipt-safe-mode" value="1" checked> '
-					. esc_html__('Safe translation', 'ai-polylang-translator')
-					. '</label>';
-				echo '<button type="button" class="button button-primary aipt-translate">'
-					. esc_html__('Update translation', 'ai-polylang-translator')
-					. '</button>';
-			} else {
-				echo '<button type="button" class="button button-primary aipt-translate">'
-					. esc_html(sprintf(/* translators: %s: language name */ __('Translate into %s', 'ai-polylang-translator'), $language->name))
-					. '</button>';
+				// A duplicate is an untranslated copy: overwrite only (metabox.js confirms
+				// it), no safe mode, so it gets the same button as a new translation.
+				if ($state['state'] === 'translated') {
+					echo '<label class="aipt-safe-option" title="'
+						. esc_attr__('Filled fields are kept. New flexible content sections are added and translated, existing sections are kept; repeater blocks with a different number of rows are replaced in full.', 'ai-polylang-translator')
+						. '"><input type="checkbox" class="aipt-safe-mode" value="1" checked> '
+						. esc_html__('Safe translation', 'ai-polylang-translator')
+						. '</label>';
+					echo '<button type="button" class="button button-primary aipt-translate">'
+						. esc_html__('Update translation', 'ai-polylang-translator')
+						. '</button>';
+				} else {
+					echo '<button type="button" class="button button-primary aipt-translate">'
+						. esc_html(sprintf(/* translators: %s: language name */ __('Translate into %s', 'ai-polylang-translator'), $language['name']))
+						. '</button>';
+				}
 			}
 			echo '</div>';
 			echo '<div class="aipt-status" aria-live="polite"></div>';
@@ -110,11 +123,16 @@ class AIPT_Metabox {
 		echo '</div>';
 	}
 
+
 	private function guard(): int {
 		$post_id = absint($_POST['post_id'] ?? 0);
 		check_ajax_referer('aipt_translate_' . $post_id);
 		if (!$post_id || !current_user_can('edit_post', $post_id)) {
 			wp_send_json_error(array('message' => __('Insufficient permissions.', 'ai-polylang-translator')));
+		}
+		// Parked: prepare, batch and finalize all refuse, also from an editor opened earlier.
+		if (!AIPT_Settings::enabled()) {
+			wp_send_json_error(array('message' => __('AI Translator is disabled in Settings.', 'ai-polylang-translator')));
 		}
 		return $post_id;
 	}

@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.6.0
+
+### Added
+
+- WPML support. A multilingual adapter (`includes/lang/`) sits between the plugin and the multilingual plugin; Polylang and WPML each have one implementation, and nothing else calls them. On WPML the plugin only supplies translated text: translation groups, TM status (marked complete after writing), media and WooCommerce Multilingual sync stay WPML's job. WPML duplicates are overwritten in place and lose the duplicate flag; a pair with a pending WPML translation job is never written; the original can be switched to WPML's native editor (Advanced setting, on by default). If Polylang and WPML are both active, the plugin refuses to translate.
+- Global switch (Settings > AI Translator > Status): turning it off parks the plugin (no metabox, AJAX refused, no automatic translation, WP-CLI refuses and a running bulk command stops between records).
+- WooCommerce: custom product attribute labels and options are translated (labels go where WooCommerce Multilingual reads them).
+- Extra meta keys to translate (Advanced settings): plain-text custom fields, one meta key per line.
+- Block masking: Gutenberg/Kadence block delimiter comments are replaced with tokens before content goes to the model, so block JSON is kept out of the model's input and restored from the source afterwards. A content part whose tokens come back changed keeps its original text, a new translation is then left as a draft, and the translation is reported with a warning.
+
+### Changed
+
+- Plugin name: "AI Translator for Polylang & WPML" (slug, text domain and file names unchanged).
+- Jobs record the multilingual backend they were prepared with; a job from another backend is refused.
+
 ## 1.5.1
 
 ### Changed

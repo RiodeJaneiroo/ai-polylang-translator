@@ -66,11 +66,17 @@ class AIPT_Settings {
 
 	public static function defaults(): array {
 		return array(
+			// Global switch: off parks the plugin (no metabox, AJAX, auto or CLI runs).
+			'enabled'         => true,
 			'model'           => 'openai/gpt-6-luna',
 			'post_types'      => array('page', 'post'),
 			'field_overrides' => array(),
 			'site_context'    => '',
 			'translate_yoast' => true,
+			// Plain-text meta keys translated like the Yoast keys (AIPT_Settings_Advanced).
+			'extra_meta_keys' => array(),
+			// WPML: switch the original to the native editor on its first AI translation.
+			'native_editor'   => true,
 			'timeout'         => 90,
 			'auto_translate'  => false,
 			// 'all', a list of slugs, or null = never saved (see AIPT_Settings_Auto::languages()).
@@ -95,6 +101,23 @@ class AIPT_Settings {
 	public static function auto_enabled(): bool {
 		$saved = get_option('aipt_settings', array());
 		return is_array($saved) && !empty($saved['auto_translate']);
+	}
+
+	// Raw option read like auto_enabled(); settings saved before 1.6 have no key (= on).
+	public static function enabled(): bool {
+		return self::enabled_in(get_option('aipt_settings', array()));
+	}
+
+	// enabled() straight from the database row, bypassing every cache: a long WP-CLI run
+	// must notice the switch being turned off in wp-admin.
+	public static function enabled_fresh(): bool {
+		global $wpdb;
+		$value = $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", 'aipt_settings'));
+		return self::enabled_in(maybe_unserialize($value));
+	}
+
+	private static function enabled_in($saved): bool {
+		return !is_array($saved) || !array_key_exists('enabled', $saved) || !empty($saved['enabled']);
 	}
 
 	public static function api_key(): string {
@@ -145,7 +168,8 @@ class AIPT_Settings {
 			return $old;
 		}
 
-		$out['model'] = isset($value['model']) && array_key_exists($value['model'], self::model_catalog())
+		$out['enabled'] = !empty($value['enabled']);
+		$out['model']   = isset($value['model']) && array_key_exists($value['model'], self::model_catalog())
 			? $value['model']
 			: $out['model'];
 
@@ -183,7 +207,7 @@ class AIPT_Settings {
 			$out['field_overrides'] = $old['field_overrides'];
 		}
 
-		return array_merge($out, AIPT_Settings_Auto::sanitize($value, $old));
+		return array_merge($out, AIPT_Settings_Auto::sanitize($value, $old), AIPT_Settings_Advanced::sanitize($value, $old));
 	}
 
 	public function enqueue(string $hook): void {
@@ -228,11 +252,32 @@ class AIPT_Settings {
 	public function render_page(): void {
 		$settings = self::get();
 		$key      = self::api_key();
+		$backend  = AIPT_Lang_Loader::label();
 		?>
 		<div class="wrap aipt-settings">
-			<h1><?php esc_html_e('AI Translator (Polylang)', 'ai-polylang-translator'); ?></h1>
+			<h1><?php
+				echo esc_html($backend !== ''
+					/* translators: %s: multilingual plugin name, e.g. Polylang */
+					? sprintf(__('AI Translator (%s)', 'ai-polylang-translator'), $backend)
+					: __('AI Translator', 'ai-polylang-translator'));
+			?></h1>
 			<form method="post" action="options.php">
 				<?php settings_fields('aipt'); ?>
+
+				<div class="aipt-panel">
+					<table class="form-table" role="presentation">
+						<tr>
+							<th scope="row"><?php esc_html_e('Status', 'ai-polylang-translator'); ?></th>
+							<td>
+								<label>
+									<input type="checkbox" name="aipt_settings[enabled]" value="1" <?php checked(!empty($settings['enabled'])); ?>>
+									<?php esc_html_e('Enable AI Translator', 'ai-polylang-translator'); ?>
+								</label>
+								<p class="description"><?php esc_html_e('Turn off to park the plugin while another translation tool is used: the AI Translation box, automatic translation and the WP-CLI commands stop working; these settings and the cost log stay available. Turning it back on needs no other changes.', 'ai-polylang-translator'); ?></p>
+							</td>
+						</tr>
+					</table>
+				</div>
 
 				<div class="aipt-panel">
 					<h2 class="aipt-panel-title"><?php esc_html_e('API', 'ai-polylang-translator'); ?></h2>
@@ -313,6 +358,7 @@ class AIPT_Settings {
 								</td>
 							</tr>
 						<?php endif; ?>
+						<?php AIPT_Settings_Advanced::render($settings); ?>
 						<tr>
 							<th scope="row"><label for="aipt-timeout"><?php esc_html_e('Request timeout (seconds)', 'ai-polylang-translator'); ?></label></th>
 							<td><input type="number" id="aipt-timeout" name="aipt_settings[timeout]" value="<?php echo esc_attr($settings['timeout']); ?>" min="30" max="300" step="5"></td>

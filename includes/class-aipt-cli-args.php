@@ -12,8 +12,8 @@ class AIPT_CLI_Args {
 	 * @return array{0: string, 1: string[]} Source language and target languages.
 	 */
 	public static function languages(array $assoc_args): array {
-		$languages = pll_languages_list();
-		$from      = (string) ($assoc_args['from'] ?? pll_default_language());
+		$languages = array_column(aipt_lang()->languages(), 'code');
+		$from      = (string) ($assoc_args['from'] ?? aipt_lang()->default_language());
 		if (!in_array($from, $languages, true)) {
 			WP_CLI::error(sprintf("Unknown source language '%s'. Available: %s.", $from, implode(', ', $languages)));
 		}
@@ -32,6 +32,14 @@ class AIPT_CLI_Args {
 		return array($from, $targets);
 	}
 
+	// The global switch: checked at the start of every command (AIPT_CLI also re-reads it
+	// before each record of a bulk run).
+	public static function require_enabled(): void {
+		if (!AIPT_Settings::enabled()) {
+			WP_CLI::error('AI Translator is disabled in Settings > AI Translator.');
+		}
+	}
+
 	public static function require_user(): void {
 		if (!get_current_user_id()) {
 			WP_CLI::error('No current user. Pass --user=<login>: capabilities are checked when writing translations.');
@@ -46,7 +54,7 @@ class AIPT_CLI_Args {
 	public static function post_selection(array $assoc_args): array {
 		$enabled = array_values(array_filter(
 			AIPT_Settings::get()['post_types'],
-			static fn(string $type): bool => post_type_exists($type) && pll_is_translated_post_type($type)
+			static fn(string $type): bool => post_type_exists($type) && aipt_lang()->is_translated_post_type($type)
 		));
 		$has_types = isset($assoc_args['post_type']) && $assoc_args['post_type'] !== '';
 		$has_ids   = isset($assoc_args['ids']) && $assoc_args['ids'] !== '';
@@ -60,7 +68,7 @@ class AIPT_CLI_Args {
 			$types = self::csv($assoc_args['post_type']);
 			foreach ($types as $type) {
 				if (!in_array($type, $enabled, true)) {
-					WP_CLI::error(sprintf("Post type '%s' is not enabled in Settings > AI Translator (or not translated by Polylang).", $type));
+					WP_CLI::error(sprintf("Post type '%s' is not enabled in Settings > AI Translator (or not translated by %s).", $type, AIPT_Lang_Loader::label()));
 				}
 			}
 		} else {
@@ -102,8 +110,8 @@ class AIPT_CLI_Args {
 			WP_CLI::error('--taxonomy is required.');
 		}
 		foreach ($taxonomies as $taxonomy) {
-			if (!taxonomy_exists($taxonomy) || !pll_is_translated_taxonomy($taxonomy)) {
-				WP_CLI::error(sprintf("Taxonomy '%s' does not exist or is not translated by Polylang.", $taxonomy));
+			if (!taxonomy_exists($taxonomy) || !aipt_lang()->is_translated_taxonomy($taxonomy)) {
+				WP_CLI::error(sprintf("Taxonomy '%s' does not exist or is not translated by %s.", $taxonomy, AIPT_Lang_Loader::label()));
 			}
 			if (!current_user_can(get_taxonomy($taxonomy)->cap->edit_terms)) {
 				WP_CLI::error(sprintf("The current user cannot edit '%s' terms.", $taxonomy));

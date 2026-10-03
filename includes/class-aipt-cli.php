@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * AI translation of posts and taxonomy terms into other Polylang languages.
+ * AI translation of posts and taxonomy terms into the other site languages.
  */
 class AIPT_CLI {
 
@@ -18,7 +18,7 @@ class AIPT_CLI {
 	private $planned = array();
 
 	/**
-	 * Translate posts into other Polylang languages.
+	 * Translate posts into the other site languages.
 	 *
 	 * Works on one record (source post × target language) at a time: prepare, every
 	 * batch and the write run in-process, and costs go to the plugin's cost log.
@@ -27,7 +27,9 @@ class AIPT_CLI {
 	 * parents first; a child whose parent has no translation yet is skipped.
 	 *
 	 * Requires --user=<login> (WP-CLI global flag): the writer checks capabilities.
-	 * Exits with status 1 when any record ended in error.
+	 * Exits with status 1 when any record ended in error, or when AI Translator is
+	 * disabled in its settings. Turning it off mid-run takes effect between records:
+	 * the run stops before the next post × language.
 	 *
 	 * ## OPTIONS
 	 *
@@ -38,7 +40,7 @@ class AIPT_CLI {
 	 * : Comma-separated source post IDs (filtered by the other options just like --post_type). Required unless --post_type is given.
 	 *
 	 * [--from=<lang>]
-	 * : Source language slug. Defaults to the Polylang default language.
+	 * : Source language slug. Defaults to the site's default language.
 	 *
 	 * --to=<langs>
 	 * : Comma-separated target language slugs.
@@ -67,7 +69,7 @@ class AIPT_CLI {
 	 * ---
 	 *
 	 * [--publish]
-	 * : Publish new translations of published sources instead of saving them as drafts. Never exposes a non-public source: a private source gives a private translation, a scheduled one a scheduled translation with --keep-date (else a draft), any other status a draft; the log notes the status used. Existing translations keep their status and slug.
+	 * : Publish new translations of published sources instead of saving them as drafts. Never exposes a non-public source: a private source gives a private translation, a scheduled one a scheduled translation with --keep-date (else a draft), any other status a draft; the log notes the status used. A translation where some content kept its source text because the block markup came back changed stays a draft (logged as a warning). Existing translations keep their status and slug.
 	 *
 	 * [--keep-date]
 	 * : Copy post_date and post_date_gmt from the source post (new and updated translations).
@@ -96,6 +98,7 @@ class AIPT_CLI {
 	 *     $ wp aipt translate --ids=12,34 --to=en --mode=safe --log=/var/log/aipt/refresh.tsv --user=admin
 	 */
 	public function translate($args, $assoc_args) {
+		AIPT_CLI_Args::require_enabled();
 		$dry_run = (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'dry-run', false);
 		list($from, $targets) = AIPT_CLI_Args::languages($assoc_args);
 		AIPT_CLI_Args::require_user();
@@ -122,7 +125,7 @@ class AIPT_CLI {
 		AIPT_CLI_Args::require_api_key($dry_run);
 		$this->log = new AIPT_CLI_Log($assoc_args, 'translate', $dry_run);
 
-		$selected = $this->select_posts($types, $statuses, $from, $after, $ids, $shard);
+		$selected = AIPT_CLI_Select::posts($types, $statuses, $from, $after, $ids, $shard);
 		if ($ids && count($selected) < count($ids)) {
 			WP_CLI::warning(sprintf(
 				'%d of the given IDs are ignored: not found, not in %s, filtered by status/date/shard, or post type not enabled.',
@@ -142,6 +145,7 @@ class AIPT_CLI {
 					WP_CLI::log(sprintf('Limit of %d reached.', $limit));
 					break 2;
 				}
+				$this->stop_if_disabled();
 				$position++;
 				$outcome = $dry_run
 					? $this->dry_run_post($post_id, $target, $from, $opts, $price)
@@ -158,26 +162,28 @@ class AIPT_CLI {
 	}
 
 	/**
-	 * Translate taxonomy terms into other Polylang languages.
+	 * Translate taxonomy terms into the other site languages.
 	 *
 	 * Source terms are the terms in the --from language. Names and descriptions are
 	 * translated in batches, parents are created first, and each new term is linked
-	 * to its source term in Polylang. Terms that already have a translation in the
-	 * target language are skipped, so the command can be re-run safely.
+	 * to its source term in the multilingual plugin. Terms that already have a
+	 * translation in the target language are skipped, so the command can be re-run safely.
 	 *
 	 * Requires --user=<login> (WP-CLI global flag). Exits with status 1 when any
-	 * term ended in error.
+	 * term ended in error, or when AI Translator is disabled in its settings. Turning
+	 * it off mid-run takes effect before the next taxonomy × language: terms of the
+	 * current one, whose batches were already sent to the API, are still completed.
 	 *
 	 * ## OPTIONS
 	 *
 	 * --taxonomy=<taxonomies>
-	 * : Comma-separated taxonomies. Each must be translated by Polylang.
+	 * : Comma-separated taxonomies. Each must be translated by the multilingual plugin.
 	 *
 	 * --to=<langs>
 	 * : Comma-separated target language slugs.
 	 *
 	 * [--from=<lang>]
-	 * : Source language slug. Defaults to the Polylang default language.
+	 * : Source language slug. Defaults to the site's default language.
 	 *
 	 * [--only-used-since=<date>]
 	 * : Only terms attached to posts with post_date on or after this date (Y-m-d), plus their ancestors.
@@ -199,6 +205,7 @@ class AIPT_CLI {
 	 * @subcommand translate-terms
 	 */
 	public function translate_terms($args, $assoc_args) {
+		AIPT_CLI_Args::require_enabled();
 		$dry_run = (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'dry-run', false);
 		list($from, $targets) = AIPT_CLI_Args::languages($assoc_args);
 		AIPT_CLI_Args::require_user();
@@ -213,9 +220,10 @@ class AIPT_CLI {
 		}
 
 		foreach ($taxonomies as $taxonomy) {
-			$terms = $this->source_terms($taxonomy, $from, $since);
+			$terms = AIPT_CLI_Select::terms($taxonomy, $from, $since);
 			WP_CLI::log(sprintf('%s: %d source terms in %s.', $taxonomy, count($terms), $from));
 			foreach ($targets as $target) {
+				$this->stop_if_disabled();
 				AIPT_Terms::translate($taxonomy, $terms, $from, $target, $dry_run ? $price : null, function (array $row) use ($taxonomy, $target): void {
 					$this->record_term($taxonomy, $row['term'], $target, $row);
 				});
@@ -227,72 +235,6 @@ class AIPT_CLI {
 	}
 
 	// ---- Posts ----------------------------------------------------------------
-
-	private function select_posts(array $types, array $statuses, string $from, string $after, array $ids, ?array $shard): array {
-		$query_args = array(
-			'post_type'              => $types,
-			'post_status'            => $statuses,
-			// Explicit language: never depend on the CLI user's admin language filter.
-			'lang'                   => $from,
-			'fields'                 => 'ids',
-			'posts_per_page'         => -1,
-			'orderby'                => 'ID',
-			'order'                  => 'ASC',
-			'no_found_rows'          => true,
-			'ignore_sticky_posts'    => true,
-			'update_post_meta_cache' => false,
-			'update_post_term_cache' => false,
-			'cache_results'          => false,
-		);
-		if ($ids) {
-			$query_args['post__in'] = $ids;
-		}
-		if ($after !== '') {
-			$query_args['date_query'] = array(array('column' => 'post_date', 'after' => $after, 'inclusive' => true));
-		}
-
-		$query = new WP_Query($query_args);
-		$found = array_map('intval', $query->posts);
-		if ($shard) {
-			$found = array_values(array_filter($found, static fn(int $id): bool => $id % $shard[1] === $shard[0]));
-		}
-		return $this->parents_first($found, $types);
-	}
-
-	// Stable order: depth, then ID — parents are translated before their children.
-	private function parents_first(array $ids, array $types): array {
-		global $wpdb;
-		$hierarchical = array_values(array_filter($types, 'is_post_type_hierarchical'));
-		if (!$hierarchical || !$ids) {
-			return $ids;
-		}
-
-		$placeholders = implode(',', array_fill(0, count($hierarchical), '%s'));
-		$rows         = $wpdb->get_results($wpdb->prepare(
-			"SELECT ID, post_parent FROM {$wpdb->posts} WHERE post_parent > 0 AND post_type IN ($placeholders)",
-			$hierarchical
-		));
-		$parents = array();
-		foreach ($rows as $row) {
-			$parents[(int) $row->ID] = (int) $row->post_parent;
-		}
-
-		$depth = array();
-		foreach ($ids as $id) {
-			$level   = 0;
-			$current = $id;
-			$seen    = array();
-			while (isset($parents[$current]) && !isset($seen[$current])) {
-				$seen[$current] = true;
-				$current        = $parents[$current];
-				$level++;
-			}
-			$depth[$id] = $level;
-		}
-
-		usort($ids, static fn(int $a, int $b): int => array($depth[$a], $a) <=> array($depth[$b], $b));
-		return $ids;
-	}
 
 	private function process_post(int $post_id, string $target, string $from, array $opts): array {
 		if (function_exists('set_time_limit')) {
@@ -315,9 +257,13 @@ class AIPT_CLI {
 				'keep_date'     => $opts['keep_date'],
 			));
 			if (is_wp_error($result)) {
-				if ($result->get_error_code() === 'aipt_pair_locked') {
+				$skipped = AIPT_Record::skip_status($result);
+				if ($skipped === 'skipped_locked') {
 					$holder = (string) ($result->get_error_data()['holder'] ?? '');
-					return AIPT_Record::outcome('skipped_locked', 0, 0.0, 'pair is locked' . ($holder !== '' ? ' by ' . $holder : ''));
+					return AIPT_Record::outcome($skipped, 0, 0.0, 'pair is locked' . ($holder !== '' ? ' by ' . $holder : ''));
+				}
+				if ($skipped !== null) {
+					return AIPT_Record::outcome($skipped, 0, 0.0, $result->get_error_message());
 				}
 				$usage = (array) $result->get_error_data('aipt_usage');
 				return AIPT_Record::outcome(
@@ -357,13 +303,15 @@ class AIPT_CLI {
 		}
 	}
 
-	// Status '' means the record should be translated; target_id holds the existing translation.
+	// Status '' means the record should be translated; target_id holds the existing
+	// translation and mode the mode the write will use (a duplicate is always overwritten).
 	private function precheck(int $post_id, string $target, string $from, array $opts): array {
-		$check = AIPT_Record::check_source($post_id, $target, $from, $opts['skip_existing']);
+		$check = AIPT_Record::check_source($post_id, $target, $from, $opts['skip_existing'], $opts['mode']);
 		if ($check['status'] !== '') {
 			return $check;
 		}
 		$existing = (int) $check['target_id'];
+		$mode     = $check['mode'];
 		$post     = get_post($post_id);
 
 		// A dry run counts the parents it would create as translated.
@@ -374,26 +322,28 @@ class AIPT_CLI {
 
 		$terms = AIPT_Record::translated_terms($post_id, $post->post_type);
 		// Safe mode keeps the terms of a translation that already has some.
-		if ($existing && $opts['mode'] === 'safe') {
+		if ($existing && $mode === 'safe') {
 			$terms = array_diff_key($terms, AIPT_Record::translated_terms($existing, $post->post_type));
 		}
 		$missing = AIPT_Record::missing_terms($terms, $target);
 		if ($missing) {
 			return AIPT_Record::outcome('skipped_missing_terms', $existing, 0.0, 'untranslated terms: ' . AIPT_Record::describe_terms($missing));
 		}
-		return AIPT_Record::outcome('', $existing);
+		$outcome         = AIPT_Record::outcome('', $existing);
+		$outcome['mode'] = $mode;
+		return $outcome;
 	}
 
 	private function dry_run_post(int $post_id, string $target, string $from, array $opts, float $price): array {
-		$mode = $opts['mode'];
 		try {
 			$check = $this->precheck($post_id, $target, $from, $opts);
 			if ($check['status'] !== '') {
 				return $check;
 			}
+			$mode     = $check['mode'];
 			$existing = (int) $check['target_id'];
 			$safe     = $existing && $mode === 'safe';
-			$extract  = AIPT_Extractor::extract($post_id, $existing, $safe);
+			$extract  = AIPT_Extractor::extract($post_id, $existing, $safe, $target);
 			if (!$extract['items'] && !$safe) {
 				return AIPT_Record::outcome('error', 0, 0.0, 'no text to translate');
 			}
@@ -425,55 +375,6 @@ class AIPT_CLI {
 
 	// ---- Terms ----------------------------------------------------------------
 
-	/**
-	 * @return WP_Term[] Source-language terms, parents first.
-	 */
-	private function source_terms(string $taxonomy, string $from, string $since): array {
-		$terms = get_terms(array(
-			'taxonomy'   => $taxonomy,
-			'hide_empty' => false,
-			'lang'       => $from,
-			'orderby'    => 'term_id',
-			'order'      => 'ASC',
-		));
-		if (is_wp_error($terms)) {
-			WP_CLI::warning(sprintf('%s: %s', $taxonomy, $terms->get_error_message()));
-			return array();
-		}
-
-		$by_id = array();
-		foreach ($terms as $term) {
-			if (pll_get_term_language($term->term_id) === $from) {
-				$by_id[(int) $term->term_id] = $term;
-			}
-		}
-
-		if ($since !== '') {
-			// Ancestors keep the hierarchy intact even when only a child is used.
-			$used = array_intersect(array_keys($by_id), $this->terms_used_since($taxonomy, $since));
-			return AIPT_Terms::with_ancestors($taxonomy, $used, $from);
-		}
-		return AIPT_Terms::parents_first($taxonomy, $by_id);
-	}
-
-	// Source-language terms are attached only to source-language posts, so the
-	// caller's intersection with source terms keeps this to the source language.
-	private function terms_used_since(string $taxonomy, string $since): array {
-		global $wpdb;
-		$ids = $wpdb->get_col($wpdb->prepare(
-			"SELECT DISTINCT tt.term_id
-			FROM {$wpdb->term_relationships} tr
-			INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-			INNER JOIN {$wpdb->posts} p ON p.ID = tr.object_id
-			WHERE tt.taxonomy = %s
-				AND p.post_date >= %s
-				AND p.post_status NOT IN ('trash', 'auto-draft', 'inherit')",
-			$taxonomy,
-			$since . ' 00:00:00'
-		));
-		return array_map('intval', $ids);
-	}
-
 	private function record_term(string $taxonomy, WP_Term $term, string $target, array $outcome): void {
 		$label = $taxonomy . ' "' . html_entity_decode($term->name, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '"';
 		$outcome['message'] = trim($label . ' ' . $outcome['message']);
@@ -485,7 +386,16 @@ class AIPT_CLI {
 	private function free_memory(): void {
 		global $wpdb;
 		AIPT_Pipeline::flush_runtime_cache();
+		aipt_lang()->refresh();
 		$wpdb->queries = array();
 		gc_collect_cycles();
+	}
+
+	// Ends the run with the summary so far and exit status 1. The switch may be turned
+	// off in wp-admin during a long run, so it is read from the database.
+	private function stop_if_disabled(): void {
+		if (!AIPT_Settings::enabled_fresh()) {
+			$this->log->abort('AI Translator was disabled in Settings > AI Translator; the run was stopped.');
+		}
 	}
 }

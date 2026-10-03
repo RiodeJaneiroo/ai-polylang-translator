@@ -28,7 +28,7 @@ class AIPT_Pipeline {
 	 * @return array|WP_Error {job_id, total}
 	 */
 	public static function prepare(int $post_id, string $target, array $opts = array()) {
-		$job = self::build_job($post_id, $target, $opts);
+		$job = AIPT_Job_Builder::build($post_id, $target, $opts);
 		if (is_wp_error($job)) {
 			return $job;
 		}
@@ -45,109 +45,17 @@ class AIPT_Pipeline {
 	}
 
 	/**
-	 * Validate the request and build the job payload (not stored).
-	 *
-	 * @return array|WP_Error
-	 */
-	private static function build_job(int $post_id, string $target, array $opts) {
-		// Checked here, under translate_post()'s pair lock, so a translation that appeared
-		// since the caller's pre-checks is never updated.
-		if (!empty($opts['skip_existing'])) {
-			$found = (int) (pll_get_post($post_id, $target) ?: 0);
-			if ($found) {
-				return new WP_Error('aipt_translation_exists', __('The translation already exists.', 'ai-polylang-translator'), array('target_id' => $found));
-			}
-		}
-
-		$post     = get_post($post_id);
-		$settings = AIPT_Settings::get();
-
-		if (!$post || !in_array($post->post_type, $settings['post_types'], true)) {
-			return new WP_Error('aipt_post_type_disabled', __('This post type is not enabled in the translation settings.', 'ai-polylang-translator'));
-		}
-		if (AIPT_Settings::api_key() === '') {
-			return new WP_Error('aipt_no_key', __('API key is not set.', 'ai-polylang-translator'));
-		}
-
-		$mode        = ($opts['mode'] ?? 'overwrite') === 'safe' ? 'safe' : 'overwrite';
-		$source_lang = pll_get_post_language($post_id);
-
-		if (!$source_lang) {
-			return new WP_Error('aipt_no_language', __('The post has no Polylang language set.', 'ai-polylang-translator'));
-		}
-		if (!in_array($target, pll_languages_list(), true) || $target === $source_lang) {
-			return new WP_Error('aipt_invalid_target', __('Invalid target language.', 'ai-polylang-translator'));
-		}
-
-		$existing = (int) (pll_get_post($post_id, $target) ?: 0);
-		if ($existing && !current_user_can('edit_post', $existing)) {
-			return new WP_Error('aipt_cannot_edit_translation', __('Insufficient permissions to modify the existing translation.', 'ai-polylang-translator'));
-		}
-		if (!$existing && !self::can_create_translation($post)) {
-			return new WP_Error('aipt_cannot_create_translation', __('Insufficient permissions to create a translation.', 'ai-polylang-translator'));
-		}
-		if (!$existing) {
-			$mode = 'overwrite';
-		}
-		if ($existing && $mode === 'overwrite' && empty($opts['confirm'])) {
-			return new WP_Error('needs_confirm', __('A translation already exists — overwrite confirmation is required.', 'ai-polylang-translator'));
-		}
-
-		$extract = AIPT_Extractor::extract($post_id, $existing, $mode === 'safe');
-		if (!$extract['items'] && $mode !== 'safe') {
-			return new WP_Error('aipt_no_text', __('The post has no text to translate.', 'ai-polylang-translator'));
-		}
-
-		$source_name = (string) pll_get_post_language($post_id, 'name');
-		$target_name = self::language_name($target);
-
-		$batches = array();
-		foreach (AIPT_Extractor::build_batches($extract['items']) as $keys) {
-			$batches[] = array('keys' => $keys);
-		}
-
-		$post_status = (string) ($opts['post_status'] ?? 'draft');
-		if (!in_array($post_status, self::POST_STATUSES, true)) {
-			$post_status = 'draft';
-		}
-
-		return array(
-			'user_id'     => get_current_user_id(),
-			'post_id'     => $post_id,
-			'target'      => $target,
-			// Snapshot the model at job-creation time: the cost log must reflect
-			// the model actually used even if the setting changes before finalize.
-			'model'       => $settings['model'],
-			'existing'    => $existing,
-			'mode'        => $mode,
-			// Apply only when the writer creates the translation.
-			'post_status' => $post_status,
-			'keep_date'   => !empty($opts['keep_date']),
-			'source_name' => $source_name ?: $source_lang,
-			'target_name' => $target_name,
-			'items'       => $extract['items'],
-			'tree'        => $extract['tree'],
-			'remap'       => $extract['remap'],
-			'meta'        => $extract['meta'],
-			'preserve'    => $extract['preserve'],
-			'overwrite'   => $extract['overwrite'],
-			'flex'        => $extract['flex'],
-			'skip'        => $extract['skip'],
-			// Jobs without this marker were created by 1.2 and still rely on
-			// finalize-time aggregation of usage stored in batch transients.
-			'usage_recorded_per_batch' => true,
-			'batches'     => $batches,
-		);
-	}
-
-	/**
 	 * Translate one batch. Idempotent: a finished batch is never re-translated.
 	 *
 	 * @param array|null $usage Receives this call's token usage (zeros when no API call was made).
 	 * @return array|WP_Error {done, total}
 	 */
 	public static function translate_batch(string $job_id, array $job, int $index, ?array &$usage = null) {
-		$usage = array('tokens_in' => 0, 'tokens_out' => 0, 'cost' => 0.0);
+		$usage   = array('tokens_in' => 0, 'tokens_out' => 0, 'cost' => 0.0);
+		$backend = self::backend_error($job);
+		if ($backend) {
+			return $backend;
+		}
 		$total = count($job['batches']);
 		if (!isset($job['batches'][$index])) {
 			return new WP_Error('aipt_unknown_batch', __('Unknown translation block.', 'ai-polylang-translator'));
@@ -214,6 +122,10 @@ class AIPT_Pipeline {
 	 * @return array|WP_Error {post_id, edit_link}
 	 */
 	public static function finalize(string $job_id, array $job) {
+		$backend = self::backend_error($job);
+		if ($backend) {
+			return $backend;
+		}
 		// A repeated finalize after a successful write returns the saved translation.
 		if (($job['status'] ?? '') === 'complete') {
 			return self::finalized_result($job);
@@ -269,9 +181,11 @@ class AIPT_Pipeline {
 	 *                    'cli') and skip_existing (bool: a translation found under the
 	 *                    lock is left alone and reported as skipped_existing).
 	 * @return array|WP_Error {target_id, status (created|updated, with a '_with_warning'
-	 *                        suffix when the final status/slug update failed, or
+	 *                        suffix when the final status/slug update failed or a content
+	 *                        chunk kept its source text (AIPT_Blocks), or
 	 *                        skipped_existing), cost, api_calls, warning}. A busy pair is
-	 *                        'aipt_pair_locked' with {holder} error data; other errors
+	 *                        'aipt_pair_locked' with {holder} error data, a target with
+	 *                        backend work in progress 'aipt_target_pending'; other errors
 	 *                        carry {cost, api_calls} as 'aipt_usage' error data.
 	 */
 	public static function translate_post(int $post_id, string $target, array $opts = array()) {
@@ -284,7 +198,7 @@ class AIPT_Pipeline {
 			return self::pair_busy_error($post_id, $target);
 		}
 		// The lock key read the translation group from cache: re-check against fresh data.
-		self::flush_runtime_cache();
+		aipt_lang()->refresh();
 
 		$opts['confirm'] = true;
 		try {
@@ -305,8 +219,9 @@ class AIPT_Pipeline {
 		return $result;
 	}
 
-	// Long in-process runs (WP-CLI, cron) would keep stale Polylang translation groups.
-	// A persistent cache without runtime flush is left alone (it is site-wide).
+	// Long in-process runs (WP-CLI, cron) would keep stale cached data (Polylang keeps its
+	// translation groups there). A persistent cache without runtime flush is left alone
+	// (it is site-wide).
 	public static function flush_runtime_cache(): void {
 		if (function_exists('wp_cache_supports') && wp_cache_supports('flush_runtime')) {
 			wp_cache_flush_runtime();
@@ -325,20 +240,27 @@ class AIPT_Pipeline {
 			&& (int) ($job['post_id'] ?? 0) === $post_id;
 	}
 
-	public static function language_name(string $slug): string {
-		foreach (pll_languages_list(array('fields' => '')) as $language) {
-			if ($language->slug === $slug) {
-				return (string) $language->name;
-			}
+	/**
+	 * Jobs carry the adapter they were prepared with. A job from another backend (the
+	 * site switched between Polylang and WPML within the job's TTL) is refused and left
+	 * intact; a job without 'backend' was prepared before 1.6, when only Polylang existed.
+	 */
+	private static function backend_error(array $job): ?WP_Error {
+		if (($job['backend'] ?? 'polylang') === aipt_lang()->name()) {
+			return null;
 		}
-		return $slug;
+		return new WP_Error('aipt_job_backend', sprintf(
+			/* translators: %s: multilingual plugin name, e.g. Polylang */
+			__('This translation job was not prepared with %s. Start the translation again.', 'ai-polylang-translator'),
+			AIPT_Lang_Loader::label()
+		));
 	}
 
 	/**
 	 * @return array|WP_Error
 	 */
 	private static function run_post(int $post_id, string $target, array $opts) {
-		$job = self::build_job($post_id, $target, $opts);
+		$job = AIPT_Job_Builder::build($post_id, $target, $opts);
 		if (is_wp_error($job)) {
 			return $job;
 		}
@@ -360,13 +282,13 @@ class AIPT_Pipeline {
 		}
 
 		// A stale group after minutes of batches would unlink a translation saved meanwhile.
-		self::flush_runtime_cache();
+		aipt_lang()->refresh();
 		$job['results'] = $results;
 		$new_id         = self::write($job);
 		$warning        = '';
 		$written        = self::finish_failure($new_id);
 		if ($written) {
-			$warning = $new_id->get_error_message();
+			$warning = self::warning_text($new_id);
 			$new_id  = $written;
 		} elseif (is_wp_error($new_id)) {
 			return self::with_usage($new_id, $cost, $api_calls);
@@ -392,6 +314,8 @@ class AIPT_Pipeline {
 		if (!AIPT_Job::acquire_pair_lock($post_id, $target, self::EDITOR_PAIR_LOCK_TTL, 'editor')) {
 			return self::pair_busy_error($post_id, $target);
 		}
+		// The writer re-checks the target state against the job: read it fresh.
+		aipt_lang()->refresh();
 
 		try {
 			$job['results'] = $results;
@@ -400,8 +324,9 @@ class AIPT_Pipeline {
 			$warning = null;
 			$written = self::finish_failure($new_id);
 			if ($written) {
-				// The translation exists and is linked; only its status/slug update failed.
-				$warning = $new_id;
+				// The translation exists and is linked; only its status/slug update failed or
+				// some content kept its source text. The editor shows one message: join them.
+				$warning = new WP_Error($new_id->get_error_code(), self::warning_text($new_id), $new_id->get_error_data());
 				$new_id  = $written;
 			} elseif (is_wp_error($new_id)) {
 				return $new_id;
@@ -443,7 +368,7 @@ class AIPT_Pipeline {
 		self::$writing++;
 		try {
 			$written = AIPT_Writer::write($job);
-			$post_id = is_wp_error($written) ? self::finish_failure($written) : (int) $written;
+			$post_id = is_wp_error($written) ? self::written_id($written) : (int) $written;
 			if ($post_id) {
 				update_post_meta($post_id, AIPT_Auto::MARKER, time());
 			}
@@ -453,14 +378,30 @@ class AIPT_Pipeline {
 		}
 	}
 
-	// Post ID of a translation that was written but whose final status/slug update
-	// failed (AIPT_Writer 'aipt_finish_failed'), else 0.
+	// Post ID of a translation that was written with a warning ('aipt_written_with_warning':
+	// its final status/slug update failed, or a content chunk kept its source text because
+	// the block tokens came back changed), else 0.
 	private static function finish_failure($written): int {
-		if (!is_wp_error($written) || $written->get_error_code() !== 'aipt_finish_failed') {
+		if (!is_wp_error($written) || $written->get_error_code() !== 'aipt_written_with_warning') {
 			return 0;
 		}
-		$data = $written->get_error_data();
+		return self::written_id($written);
+	}
+
+	// Post ID a writer error says exists on disk, else 0: a warning, or a link failure of
+	// an updated post (a created post is deleted again by the writer; only a failed
+	// deletion leaves it, with its ID). Such a partial write still gets the marker.
+	private static function written_id(WP_Error $error): int {
+		if (!in_array($error->get_error_code(), array('aipt_written_with_warning', 'aipt_link_failed'), true)) {
+			return 0;
+		}
+		$data = $error->get_error_data();
 		return is_array($data) ? (int) ($data['post_id'] ?? 0) : 0;
+	}
+
+	// A warning may carry several messages (finish failure plus block fallback): one line.
+	private static function warning_text(WP_Error $error): string {
+		return implode(' ', $error->get_error_messages());
 	}
 
 	/**
@@ -491,10 +432,5 @@ class AIPT_Pipeline {
 	private static function with_usage(WP_Error $error, float $cost, int $api_calls): WP_Error {
 		$error->add_data(array('cost' => $cost, 'api_calls' => $api_calls), 'aipt_usage');
 		return $error;
-	}
-
-	private static function can_create_translation(WP_Post $post): bool {
-		$post_type = get_post_type_object($post->post_type);
-		return $post_type && current_user_can($post_type->cap->create_posts);
 	}
 }

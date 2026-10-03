@@ -90,6 +90,49 @@ class AIPT_Safe_Merge {
 	 *
 	 * @return array<int, int> Source row index => target row index.
 	 */
+	/**
+	 * Extract side: a filled target value (on a path that is not overwritten) is recorded
+	 * in $preserve as ['path' => ..., 'value' => ...]. True means the path is preserved
+	 * and must not be extracted.
+	 */
+	public static function preserve_value(array $path, $value, array $overwrite, array &$preserve): bool {
+		if (self::is_overwritten($path, $overwrite) || !self::has_value($value)) {
+			return false;
+		}
+		$preserve[] = array('path' => $path, 'value' => $value);
+		return true;
+	}
+
+	/**
+	 * The job's 'preserve' entries as wp_json_encode(path) => value, for preserved_value().
+	 */
+	public static function preserve_map(array $entries): array {
+		$map = array();
+		foreach ($entries as $entry) {
+			if (!is_array($entry)
+				|| !isset($entry['path'])
+				|| !is_array($entry['path'])
+				|| !array_key_exists('value', $entry)) {
+				continue;
+			}
+			$map[wp_json_encode($entry['path'])] = $entry['value'];
+		}
+		return $map;
+	}
+
+	/**
+	 * Write side: the target's current value when filled, else the value preserved at
+	 * extract time, else $fallback. A preserved path was never extracted, so it has no
+	 * translation that could take precedence.
+	 */
+	public static function preserved_value(array $path, $current, $fallback, array $preserve_map) {
+		if (self::has_value($current)) {
+			return $current;
+		}
+		$key = wp_json_encode($path);
+		return array_key_exists($key, $preserve_map) ? $preserve_map[$key] : $fallback;
+	}
+
 	public static function align_flexible_rows(array $source_rows, array $target_rows): array {
 		$target_by_layout = array();
 		foreach ($target_rows as $index => $row) {

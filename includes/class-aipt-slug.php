@@ -14,11 +14,47 @@ class AIPT_Slug {
 
 	const MAX_LENGTH = 200;
 
+	// Russian transliteration, used for every target language but Ukrainian; it also
+	// covers the Ukrainian letters (lower case; upper case is derived in cyrillic()).
+	const CYRILLIC = array(
+		'а' => 'a', 'б' => 'b', 'в' => 'v', 'г' => 'g', 'ґ' => 'g', 'д' => 'd', 'е' => 'e',
+		'ё' => 'yo', 'є' => 'ye', 'ж' => 'zh', 'з' => 'z', 'и' => 'i', 'і' => 'i', 'ї' => 'yi',
+		'й' => 'j', 'к' => 'k', 'л' => 'l', 'м' => 'm', 'н' => 'n', 'о' => 'o', 'п' => 'p',
+		'р' => 'r', 'с' => 's', 'т' => 't', 'у' => 'u', 'ф' => 'f', 'х' => 'h', 'ц' => 'ts',
+		'ч' => 'ch', 'ш' => 'sh', 'щ' => 'shch', 'ъ' => '', 'ы' => 'y', 'ь' => '', 'э' => 'e',
+		'ю' => 'yu', 'я' => 'ya',
+	);
+
+	// Ukrainian official transliteration (KMU 2010, simplified: є → ye and ї → yi in every
+	// position), applied over CYRILLIC for a 'uk' target; apostrophes are dropped.
+	const UKRAINIAN = array(
+		'г' => 'h', 'и' => 'y', 'й' => 'y', 'х' => 'kh', '’' => '', 'ʼ' => '',
+	);
+
 	// Model output may carry entities (&amp; → "-amp-") and accents that transliteration
-	// plugins such as cyr3lat turn into dashes (Polyák → "poly-k").
-	public static function from_title(string $title): string {
-		$title = html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-		return sanitize_title(remove_accents($title));
+	// plugins such as cyr3lat turn into dashes (Polyák → "poly-k"). Cyrillic is
+	// transliterated here: a site's transliteration plugin uses one language's table
+	// (cyr2lat with the uk table leaves Russian ы, э, ё, ъ untouched), and whatever stays
+	// non-ASCII ends up percent-encoded in the slug. $lang is the target language code.
+	public static function from_title(string $title, string $lang = ''): string {
+		$title = remove_accents(html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+		if (preg_match('/[^\x00-\x7F]/', $title)) {
+			$title = strtr($title, self::cyrillic($lang === 'uk'));
+		}
+		return sanitize_title($title);
+	}
+
+	private static function cyrillic(bool $ukrainian): array {
+		static $maps = array();
+		if (!isset($maps[$ukrainian])) {
+			$lower = $ukrainian ? array_merge(self::CYRILLIC, self::UKRAINIAN) : self::CYRILLIC;
+			$map   = $lower;
+			foreach ($lower as $letter => $latin) {
+				$map[mb_strtoupper($letter, 'UTF-8')] = ucfirst($latin);
+			}
+			$maps[$ukrainian] = $map;
+		}
+		return $maps[$ukrainian];
 	}
 
 	// Always checked as 'publish': WordPress skips the uniqueness check for drafts and

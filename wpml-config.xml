@@ -1,0 +1,6 @@
+<wpml-config>
+	<custom-fields>
+		<custom-field action="ignore">_aipt_auto_scheduled</custom-field>
+		<custom-field action="ignore">_aipt_auto_user</custom-field>
+	</custom-fields>
+</wpml-config>

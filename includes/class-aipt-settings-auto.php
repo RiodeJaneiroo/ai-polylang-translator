@@ -8,13 +8,17 @@ if (!defined('ABSPATH')) {
 
 class AIPT_Settings_Auto {
 
-	// Languages auto-translation can target: every Polylang language but the default, slug => name.
+	// Languages auto-translation can target: every site language but the default, code =>
+	// name. None while no multilingual adapter is loaded (settings-only mode).
 	public static function candidates(): array {
-		$default    = (string) pll_default_language();
+		if (!AIPT_Lang_Loader::active()) {
+			return array();
+		}
+		$default    = aipt_lang()->default_language();
 		$candidates = array();
-		foreach (pll_languages_list(array('fields' => '')) as $language) {
-			if ($language->slug !== $default) {
-				$candidates[$language->slug] = (string) $language->name;
+		foreach (aipt_lang()->languages() as $language) {
+			if ($language['code'] !== $default) {
+				$candidates[$language['code']] = $language['name'];
 			}
 		}
 		return $candidates;
@@ -22,7 +26,7 @@ class AIPT_Settings_Auto {
 
 	// Selected target languages. 'all' (every box ticked) and null (never saved, e.g.
 	// settings from 1.4.0) mean every non-default language, including ones added to
-	// Polylang later; [] means none.
+	// the multilingual plugin later; [] means none.
 	public static function languages(array $settings): array {
 		$candidates = array_keys(self::candidates());
 		if (!is_array($settings['auto_languages'] ?? null)) {
@@ -38,8 +42,8 @@ class AIPT_Settings_Auto {
 	public static function sanitize(array $value, array $old): array {
 		$languages = $old['auto_languages'] ?? null;
 		// The form always posts the key (a hidden empty entry) when it shows languages;
-		// without it (no second language yet) the stored choice is kept.
-		if (array_key_exists('auto_languages', $value)) {
+		// without it (no second language yet, or no adapter) the stored choice is kept.
+		if (array_key_exists('auto_languages', $value) && AIPT_Lang_Loader::active()) {
 			$candidates = array_keys(self::candidates());
 			$posted     = $value['auto_languages'];
 			// 'all' arrives when a sanitized value is sanitized again (first save goes through add_option).

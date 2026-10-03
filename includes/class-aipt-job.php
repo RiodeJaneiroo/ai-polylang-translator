@@ -18,6 +18,10 @@ class AIPT_Job {
 	private static $pair_keys = array();
 
 	public static function create(array $data): string {
+		// The adapter the job was prepared with (AIPT_Pipeline refuses it under another)
+		// and the payload version: 2 since 1.6 (target_state, backend).
+		$data['backend'] = aipt_lang()->name();
+		$data['schema']  = 2;
 		$id = wp_generate_uuid4();
 		// A brand-new uuid key never matches an existing value, so a false here is a
 		// real storage failure (oversized payload, memcached/packet limit) rather than
@@ -333,17 +337,10 @@ class AIPT_Job {
 		));
 	}
 
-	// Keyed per translation group (its smallest post ID), not per source post: two
+	// Keyed per translation group (AIPT_Lang::group_id()), not per source post: two
 	// members of one group translated into the same language write the same target.
 	private static function pair_lock_key(int $post_id, string $target): string {
-		$group = $post_id;
-		if (function_exists('pll_get_post_translations')) {
-			$ids = array_filter(array_map('intval', (array) pll_get_post_translations($post_id)));
-			if ($ids) {
-				$group = min(min($ids), $post_id);
-			}
-		}
-		return 'aipt_pair_lock_' . $group . '_' . sanitize_key($target);
+		return 'aipt_pair_lock_' . aipt_lang()->group_id($post_id) . '_' . sanitize_key($target);
 	}
 
 	private static function new_lock_value(int $now): string {

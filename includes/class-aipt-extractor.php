@@ -1,7 +1,9 @@
 <?php
 // Collects translatable strings from a post. Item paths:
-//   ['post', 'title' | 'excerpt'] | ['post', 'content', N]
-//   ['meta', meta_key]
+//   ['post', 'title' | 'excerpt'] | ['post', 'content', N] (block delimiters masked per
+//   chunk by AIPT_Blocks; maps in 'blocks', keyed by N, only for chunks that had any)
+//   ['meta', meta_key] (Yoast keys and the extra_meta_keys setting)
+//   ['woo', 'attr', key, 'name' | 'value', i] (see AIPT_Woo)
 //   ['acf', field_key, row, sub_key, ...] (+ ['#chunk', N] suffix for long wysiwyg)
 // Raw ACF values (format_value = false) keep repeater/flexible rows indexed by
 // sub-field keys with 'acf_fc_layout' — the exact shape update_field() accepts.
@@ -19,9 +21,11 @@ class AIPT_Extractor {
 	const YOAST_KEYS = array('_yoast_wpseo_title', '_yoast_wpseo_metadesc', '_yoast_wpseo_focuskw');
 
 	/**
-	 * @return array{items: array, tree: array, remap: array, meta: array, preserve: array, overwrite: array, flex: array, skip: array}
+	 * @param int    $target_id Existing translation (0 = none).
+	 * @param string $target    Target language code (labels kept by safe mode are stored per language).
+	 * @return array{items: array, tree: array, remap: array, meta: array, preserve: array, overwrite: array, flex: array, skip: array, woo: array, blocks: array}
 	 */
-	public static function extract(int $post_id, int $target_id = 0, bool $safe = false): array {
+	public static function extract(int $post_id, int $target_id, bool $safe, string $target): array {
 		$post        = get_post($post_id);
 		$target_post = $safe && $target_id ? get_post($target_id) : null;
 		$settings    = AIPT_Settings::get();
@@ -34,37 +38,60 @@ class AIPT_Extractor {
 		};
 
 		$preserve_title = $target_post
-			&& self::preserve_value(array('post', 'title'), $target_post->post_title, array(), $preserve);
+			&& AIPT_Safe_Merge::preserve_value(array('post', 'title'), $target_post->post_title, array(), $preserve);
 		if (!$preserve_title && self::is_translatable($post->post_title)) {
 			$add(array('post', 'title'), $post->post_title);
 		}
 		$preserve_excerpt = $target_post
-			&& self::preserve_value(array('post', 'excerpt'), $target_post->post_excerpt, array(), $preserve);
+			&& AIPT_Safe_Merge::preserve_value(array('post', 'excerpt'), $target_post->post_excerpt, array(), $preserve);
 		if (!$preserve_excerpt && self::is_translatable($post->post_excerpt)) {
 			$add(array('post', 'excerpt'), $post->post_excerpt);
 		}
 		$preserve_content = $target_post
-			&& self::preserve_value(array('post', 'content'), $target_post->post_content, array(), $preserve);
+			&& AIPT_Safe_Merge::preserve_value(array('post', 'content'), $target_post->post_content, array(), $preserve);
+		$blocks = array();
 		if (!$preserve_content && self::is_translatable($post->post_content)) {
+			// Masked after chunking, so chunk boundaries stay those of the raw content.
 			foreach (self::chunk_html($post->post_content) as $i => $chunk) {
-				$add(array('post', 'content', $i), $chunk);
+				$masked = AIPT_Blocks::mask($chunk);
+				$entry  = AIPT_Blocks::job_entry($masked, $chunk);
+				if ($entry !== null) {
+					$blocks[$i] = $entry;
+				}
+				// A chunk that could not be masked is never sent; the writer keeps its source.
+				if (!$masked['fallback']) {
+					$add(array('post', 'content', $i), $masked['text']);
+				}
 			}
 		}
 
-		$meta = array();
-		if ($settings['translate_yoast'] && aipt_yoast_active()) {
-			foreach (self::YOAST_KEYS as $meta_key) {
-				$value = (string) get_post_meta($post_id, $meta_key, true);
-				$meta[$meta_key] = $value;
-				$target_value = $target_post ? get_post_meta($target_id, $meta_key, true) : null;
-				if ($target_post && self::preserve_value(array('meta', $meta_key), $target_value, array(), $preserve)) {
-					continue;
-				}
-				if (self::is_translatable($value)) {
-					$add(array('meta', $meta_key), $value);
-				}
+		$meta      = array();
+		$meta_keys = $settings['translate_yoast'] && aipt_yoast_active() ? self::YOAST_KEYS : array();
+		// Extra keys travel only with a non-empty string value, so an empty or missing
+		// source value never clears the translation's own value.
+		foreach ((array) $settings['extra_meta_keys'] as $meta_key) {
+			$value = is_string($meta_key) ? get_post_meta($post_id, $meta_key, true) : null;
+			if (is_string($value) && trim($value) !== '' && !in_array($meta_key, $meta_keys, true)) {
+				$meta_keys[] = $meta_key;
 			}
 		}
+		foreach ($meta_keys as $meta_key) {
+			$value = (string) get_post_meta($post_id, $meta_key, true);
+			$meta[$meta_key] = $value;
+			$target_value = $target_post ? get_post_meta($target_id, $meta_key, true) : null;
+			if ($target_post && AIPT_Safe_Merge::preserve_value(array('meta', $meta_key), $target_value, array(), $preserve)) {
+				continue;
+			}
+			if (self::is_translatable($value)) {
+				$add(array('meta', $meta_key), $value);
+			}
+		}
+
+		$woo = AIPT_Woo::extract($post, $target_post ? $target_id : 0, $target);
+		foreach ($woo['items'] as $woo_item) {
+			$add($woo_item['path'], $woo_item['text']);
+		}
+		$preserve = array_merge($preserve, $woo['preserve']);
 
 		$tree        = array();
 		$target_tree = array();
@@ -126,6 +153,8 @@ class AIPT_Extractor {
 			'overwrite' => $overwrite,
 			'flex'      => $flex,
 			'skip'      => $skip,
+			'woo'       => $woo['snapshot'],
+			'blocks'    => $blocks,
 		);
 	}
 
@@ -238,7 +267,7 @@ class AIPT_Extractor {
 			return;
 		}
 
-		if ($safe && self::preserve_value($path, $target_value, $overwrite, $preserve)) {
+		if ($safe && AIPT_Safe_Merge::preserve_value($path, $target_value, $overwrite, $preserve)) {
 			return;
 		}
 
@@ -260,13 +289,6 @@ class AIPT_Extractor {
 		}
 	}
 
-	private static function preserve_value(array $path, $value, array $overwrite, array &$preserve): bool {
-		if (AIPT_Safe_Merge::is_overwritten($path, $overwrite) || !AIPT_Safe_Merge::has_value($value)) {
-			return false;
-		}
-		$preserve[] = array('path' => $path, 'value' => $value);
-		return true;
-	}
 
 	public static function is_translatable($value): bool {
 		if (!is_string($value)) {
@@ -299,6 +321,7 @@ class AIPT_Extractor {
 		if (!is_array($pieces)) {
 			$pieces = array($html);
 		}
+		$pieces = self::join_split_delimiters($html, $pieces);
 
 		$bounded = array();
 		foreach ($pieces as $piece) {
@@ -318,6 +341,39 @@ class AIPT_Extractor {
 			$chunks[] = $current;
 		}
 		return $chunks;
+	}
+
+	/**
+	 * A closing tag inside a block delimiter's JSON (hand-written or imported content may
+	 * not escape '<') must not end a piece: pieces split inside a delimiter are joined
+	 * again. Delimiter matches are ordered and do not overlap.
+	 *
+	 * @param string[] $pieces Consecutive pieces of $html.
+	 * @return string[]
+	 */
+	private static function join_split_delimiters(string $html, array $pieces): array {
+		if (count($pieces) < 2 || !str_contains($html, '<!--')
+			|| !preg_match_all(AIPT_Blocks::DELIMITER, $html, $matches, PREG_OFFSET_CAPTURE)) {
+			return $pieces;
+		}
+		$spans  = $matches[0];
+		$count  = count($spans);
+		$next   = 0;
+		$joined = array();
+		$pos    = 0;
+		foreach ($pieces as $piece) {
+			// First delimiter that ends after this boundary.
+			while ($next < $count && $spans[$next][1] + strlen($spans[$next][0]) <= $pos) {
+				$next++;
+			}
+			if ($joined && $next < $count && $spans[$next][1] < $pos) {
+				$joined[count($joined) - 1] .= $piece;
+			} else {
+				$joined[] = $piece;
+			}
+			$pos += strlen($piece);
+		}
+		return $joined;
 	}
 
 	/**
@@ -348,6 +404,7 @@ class AIPT_Extractor {
 			if ($cut <= 0) {
 				$cut = self::CHUNK_SIZE;
 			}
+			$cut = self::delimiter_safe_cut($piece, $cut);
 
 			$chunks[] = substr($piece, 0, $cut);
 			$piece    = substr($piece, $cut);
@@ -357,6 +414,29 @@ class AIPT_Extractor {
 			$chunks[] = $piece;
 		}
 		return $chunks;
+	}
+
+	// A cut inside a block delimiter would send both halves to the model unmasked: move
+	// it to the delimiter's start (its end when the delimiter opens the piece). Both are
+	// ASCII boundaries, so UTF-8 stays intact, and the cut still moves forward. Matches
+	// come in order and do not overlap, so the scan stops at the first one at or after $cut.
+	private static function delimiter_safe_cut(string $piece, int $cut): int {
+		if (!str_contains($piece, '<!--')) {
+			return $cut;
+		}
+		$offset = 0;
+		while (preg_match(AIPT_Blocks::DELIMITER, $piece, $match, PREG_OFFSET_CAPTURE, $offset)) {
+			$start = (int) $match[0][1];
+			if ($start >= $cut) {
+				break;
+			}
+			$end = $start + strlen($match[0][0]);
+			if ($cut < $end) {
+				return $start > 0 ? $start : $end;
+			}
+			$offset = $end;
+		}
+		return $cut;
 	}
 
 	/**

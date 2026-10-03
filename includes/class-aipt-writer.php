@@ -1,8 +1,13 @@
 <?php
-// Writes the translation. Order matters: insert → pll_set_post_language → meta →
-// ACF → taxonomies → pll_save_post_translations last, so no Polylang sync-on-save
-// can touch a half-built post. Only a new translation then gets its final status and
-// slug (finish_new_post), on the complete post and still with sync suspended.
+// Writes the translation. Order matters (AIPT_Lang adapter calls): suspend_sync →
+// insert/update → begin_post → ID remap → meta → Woo attrs → ACF → taxonomies → commit_post (the
+// group link, verified) → finish_new_post (new posts) → restore_sync in finally, so no
+// sync-on-save of the multilingual plugin can touch a half-built post. Only a new
+// translation gets its final status and slug, on the complete, linked post. If the link
+// fails ('aipt_link_failed'), a post created in this run and not linked is deleted again
+// (nothing is left for a retry to duplicate); an updated post, or a created one that is
+// already linked (deleting a group member could cascade), is reported with its ID.
+// The end of every write fires 'aipt_translation_written' (post ID, source ID, language, created).
 
 if (!defined('ABSPATH')) {
 	exit;
@@ -19,16 +24,27 @@ class AIPT_Writer {
 			return new WP_Error('aipt_no_source', __('Source post not found.', 'ai-polylang-translator'));
 		}
 
-		$target          = (string) $job['target'];
-		$prepared        = (int) ($job['existing'] ?? 0);
-		$existing        = $prepared;
+		$target   = (string) $job['target'];
+		$existing = (int) ($job['existing'] ?? 0);
 		// Re-check the target the user actually confirmed at prepare time. Never silently
-		// overwrite a post that the confirmation screen never showed.
-		if (!$prepared) {
-			if ((int) (pll_get_post($source->ID, $target) ?: 0)) {
-				return new WP_Error('aipt_target_changed', __('A translation into this language was created after the job was prepared. Please start the translation again.', 'ai-polylang-translator'));
-			}
-		} elseif (!get_post($prepared)) {
+		// overwrite a post that the confirmation screen never showed. Jobs from before 1.6
+		// have no target_state: 'existing' was a real translation then.
+		$stored  = (string) ($job['target_state'] ?? ($existing ? 'translated' : 'none'));
+		$current = aipt_lang()->translation_state($source->ID, $target);
+		if ($current['state'] === 'pending') {
+			return AIPT_Record::pending_error();
+		}
+		// A confirmed update of a real translation proceeds as before (checks below),
+		// unless it became a duplicate: safe mode would keep its source-language text.
+		$changed = $stored === 'translated'
+			? $current['state'] === 'duplicate'
+			: ($current['state'] !== $stored || AIPT_Record::existing_target($current) !== $existing);
+		if ($changed) {
+			return new WP_Error('aipt_target_changed', $existing
+				? __('The translation into this language changed after the job was prepared. Please start the translation again.', 'ai-polylang-translator')
+				: __('A translation into this language was created after the job was prepared. Please start the translation again.', 'ai-polylang-translator'));
+		}
+		if ($existing && !get_post($existing)) {
 			return new WP_Error('aipt_target_changed', __('The prepared translation post was deleted. Please start the translation again.', 'ai-polylang-translator'));
 		}
 
@@ -42,11 +58,15 @@ class AIPT_Writer {
 			}
 		}
 
-		$sync_state = self::suspend_polylang_sync();
+		$sync_state = aipt_lang()->suspend_sync();
+		if (is_wp_error($sync_state)) {
+			// Nothing was suspended, so there is nothing to restore.
+			return new WP_Error('aipt_sync_missing', $sync_state->get_error_message());
+		}
 		try {
 			return self::write_translation($job, $source, $target, $existing);
 		} finally {
-			self::restore_polylang_sync($sync_state);
+			aipt_lang()->restore_sync($sync_state);
 		}
 	}
 
@@ -66,13 +86,14 @@ class AIPT_Writer {
 		$kses         = !current_user_can('unfiltered_html');
 		$safe         = $existing && ($job['mode'] ?? '') === 'safe';
 		$target_post  = $safe ? get_post($existing) : null;
-		$preserve_map = self::preserve_map((array) ($job['preserve'] ?? array()));
+		$preserve_map = AIPT_Safe_Merge::preserve_map((array) ($job['preserve'] ?? array()));
 
 		$title          = $source->post_title;
 		$excerpt        = $source->post_excerpt;
 		$content_chunks = array();
 		$meta           = (array) ($job['meta'] ?? array());
 		$acf_chunks     = array();
+		$fallbacks      = array();
 
 		foreach ($job['items'] as $id => $item) {
 			if (!array_key_exists($id, $results)) {
@@ -82,6 +103,8 @@ class AIPT_Writer {
 			if ($kses) {
 				$text = self::sanitize_translated($text);
 			}
+			// Block delimiters are source text: restored after kses (source chunk on bad tokens).
+			$text = AIPT_Blocks::restore($job, $item, $text, $fallbacks);
 			$path = $item['path'];
 
 			switch ($path[0]) {
@@ -116,28 +139,14 @@ class AIPT_Writer {
 			self::set_path($tree, json_decode($base_json, true), implode('', $chunks));
 		}
 
+		$content_chunks += AIPT_Blocks::unsent_chunks($job, $fallbacks);
 		ksort($content_chunks);
 		$content = $content_chunks ? implode('', $content_chunks) : $source->post_content;
 
 		if ($target_post) {
-			$title = self::preserved_value(
-				array('post', 'title'),
-				$target_post->post_title,
-				$title,
-				$preserve_map
-			);
-			$excerpt = self::preserved_value(
-				array('post', 'excerpt'),
-				$target_post->post_excerpt,
-				$excerpt,
-				$preserve_map
-			);
-			$content = self::preserved_value(
-				array('post', 'content'),
-				$target_post->post_content,
-				$content,
-				$preserve_map
-			);
+			$title   = AIPT_Safe_Merge::preserved_value(array('post', 'title'), $target_post->post_title, $title, $preserve_map);
+			$excerpt = AIPT_Safe_Merge::preserved_value(array('post', 'excerpt'), $target_post->post_excerpt, $excerpt, $preserve_map);
+			$content = AIPT_Safe_Merge::preserved_value(array('post', 'content'), $target_post->post_content, $content, $preserve_map);
 		}
 
 		$keep_date = !empty($job['keep_date']);
@@ -159,9 +168,9 @@ class AIPT_Writer {
 			$new_id = wp_update_post(wp_slash($postarr), true);
 		} else {
 			if ($source->post_parent) {
-				$parent = (int) (pll_get_post($source->post_parent, $target) ?: 0);
+				$parent = aipt_lang()->post_translation($source->post_parent, $target);
 			}
-			$slug    = AIPT_Slug::for_post(AIPT_Slug::from_title($title), $target, 0, $source->post_type, $parent);
+			$slug    = AIPT_Slug::for_post(AIPT_Slug::from_title($title, $target), $target, 0, $source->post_type, $parent);
 			$postarr = array(
 				'post_title'     => $title,
 				'post_content'   => $content,
@@ -188,7 +197,10 @@ class AIPT_Writer {
 		}
 		$new_id = (int) $new_id;
 
-		pll_set_post_language($new_id, $target);
+		$begun = aipt_lang()->begin_post($new_id, $source->ID, $target);
+		if (is_wp_error($begun)) {
+			return self::link_failed($new_id, $existing, $begun, $source->ID, $target);
+		}
 
 		foreach ($job['remap'] as $entry) {
 			$path  = array_slice($entry['path'], 1);
@@ -215,7 +227,7 @@ class AIPT_Writer {
 		}
 		foreach ($meta as $meta_key => $meta_value) {
 			if ($safe) {
-				$meta_value = self::preserved_value(
+				$meta_value = AIPT_Safe_Merge::preserved_value(
 					array('meta', $meta_key),
 					get_post_meta($new_id, $meta_key, true),
 					$meta_value,
@@ -228,6 +240,7 @@ class AIPT_Writer {
 				update_post_meta($new_id, $meta_key, wp_slash($meta_value));
 			}
 		}
+		AIPT_Woo::write($new_id, $job, $results, $safe, $preserve_map);
 
 		if (aipt_acf_active()) {
 			$target_tree = array();
@@ -283,33 +296,35 @@ class AIPT_Writer {
 
 		self::copy_taxonomies($source, $new_id, $target, $safe);
 
-		$translations = pll_get_post_translations($source->ID);
-		$source_lang  = pll_get_post_language($source->ID);
-		if ($source_lang) {
-			$translations[$source_lang] = $source->ID;
+		$committed = aipt_lang()->commit_post($new_id, $source->ID, $target);
+		if (is_wp_error($committed)) {
+			return self::link_failed($new_id, $existing, $committed, $source->ID, $target);
 		}
-		$translations[$target] = $new_id;
-		pll_save_post_translations($translations);
 
+		$result = $new_id;
 		if (!$existing) {
-			$finished = self::finish_new_post($new_id, $source, $target, $title, $parent, (string) ($job['post_status'] ?? 'draft'));
+			// Content that kept source text (AIPT_Blocks fallback) is never published.
+			$status   = $fallbacks ? 'draft' : (string) ($job['post_status'] ?? 'draft');
+			$finished = self::finish_new_post($new_id, $source, $target, $title, $parent, $status);
 			if (is_wp_error($finished)) {
-				return $finished;
+				$result = $finished;
 			}
 		}
-
-		return $new_id;
+		// Meta, attributes and terms are all in place: page caches and site code may react.
+		clean_post_cache($new_id);
+		do_action('aipt_translation_written', $new_id, $source->ID, $target, !$existing);
+		return AIPT_Blocks::result($result, $fallbacks, $new_id, !$existing);
 	}
 
 	/**
 	 * A new translation is inserted as a draft and gets a requested non-draft status only
 	 * here, once it is complete (language, meta, ACF, terms and translation group saved),
 	 * so publish-time hooks — SEO indexables, sitemaps, notifications — see the finished
-	 * post in its real language. Polylang sync is still suspended. The slug is re-checked
+	 * post in its real language. Sync is still suspended. The slug is re-checked
 	 * now that the language is known: setups that share slugs across languages (e.g.
 	 * Polylang Pro) can only tell at this point that no language suffix is needed.
 	 *
-	 * @return true|WP_Error 'aipt_finish_failed' carries the written post ID as
+	 * @return true|WP_Error 'aipt_written_with_warning' carries the written post ID as
 	 *                       ['post_id' => ID] error data: the translation exists and is linked.
 	 */
 	private static function finish_new_post(int $post_id, WP_Post $source, string $target, string $title, int $parent, string $status) {
@@ -317,7 +332,7 @@ class AIPT_Writer {
 		// Compare with what WordPress actually stored, not with the slug we asked for.
 		$stored = (string) get_post_field('post_name', $post_id);
 		if ($stored !== '') {
-			$final = AIPT_Slug::for_post(AIPT_Slug::from_title($title), $target, $post_id, $source->post_type, $parent);
+			$final = AIPT_Slug::for_post(AIPT_Slug::from_title($title, $target), $target, $post_id, $source->post_type, $parent);
 			if ($final !== '' && $final !== $stored) {
 				$postarr['post_name'] = $final;
 			}
@@ -332,7 +347,7 @@ class AIPT_Writer {
 		$postarr['ID'] = $post_id;
 		$updated = wp_update_post(wp_slash($postarr), true);
 		if (is_wp_error($updated)) {
-			return new WP_Error('aipt_finish_failed', sprintf(
+			return new WP_Error('aipt_written_with_warning', sprintf(
 				/* translators: 1: translation post ID, 2: error message */
 				__('Translation #%1$d was saved as a draft, but its status or slug could not be updated: %2$s', 'ai-polylang-translator'),
 				$post_id,
@@ -340,6 +355,34 @@ class AIPT_Writer {
 			), array('post_id' => $post_id));
 		}
 		return true;
+	}
+
+	// A begin_post/commit_post failure after the post was inserted or updated. A post
+	// created in this run and not linked is deleted (sync is still suspended), so a retry
+	// cannot leave a second orphan; a linked one is never deleted (the backend could
+	// delete the group with it). Otherwise a partial write, reported with its ID (the
+	// pipeline puts its marker on it).
+	private static function link_failed(int $post_id, int $existing, WP_Error $error, int $source_id, string $target): WP_Error {
+		$linked = !$existing && aipt_lang()->post_translation($source_id, $target) === $post_id;
+		if (!$existing && !$linked && wp_delete_post($post_id, true)) {
+			return new WP_Error('aipt_link_failed', sprintf(
+				/* translators: 1: multilingual plugin name, e.g. Polylang, 2: error message */
+				__('The translation could not be linked by %1$s and the created post was removed: %2$s', 'ai-polylang-translator'),
+				AIPT_Lang_Loader::label(),
+				$error->get_error_message()
+			));
+		}
+		if ($existing) {
+			/* translators: 1: translation post ID, 2: error message */
+			$message = __('Translation post #%1$d was updated but could not be linked: %2$s', 'ai-polylang-translator');
+		} elseif ($linked) {
+			/* translators: 1: translation post ID, 2: error message */
+			$message = __('Translation post #%1$d was created and linked, but the final step failed: %2$s', 'ai-polylang-translator');
+		} else {
+			/* translators: 1: translation post ID, 2: error message */
+			$message = __('Translation post #%1$d was created but could not be linked: %2$s', 'ai-polylang-translator');
+		}
+		return new WP_Error('aipt_link_failed', sprintf($message, $post_id, $error->get_error_message()), array('post_id' => $post_id));
 	}
 
 	private static function copy_taxonomies(WP_Post $source, int $new_id, string $target, bool $safe): void {
@@ -358,10 +401,10 @@ class AIPT_Writer {
 			if (is_wp_error($terms)) {
 				continue;
 			}
-			if (function_exists('pll_is_translated_taxonomy') && pll_is_translated_taxonomy($taxonomy)) {
+			if (aipt_lang()->is_translated_taxonomy($taxonomy)) {
 				$mapped = array();
 				foreach ($terms as $term_id) {
-					$translated = pll_get_term((int) $term_id, $target);
+					$translated = aipt_lang()->term_translation((int) $term_id, $target);
 					if ($translated) {
 						$mapped[] = (int) $translated;
 					}
@@ -373,27 +416,6 @@ class AIPT_Writer {
 		}
 	}
 
-	private static function preserve_map(array $entries): array {
-		$map = array();
-		foreach ($entries as $entry) {
-			if (!is_array($entry)
-				|| !isset($entry['path'])
-				|| !is_array($entry['path'])
-				|| !array_key_exists('value', $entry)) {
-				continue;
-			}
-			$map[wp_json_encode($entry['path'])] = $entry['value'];
-		}
-		return $map;
-	}
-
-	private static function preserved_value(array $path, $current, $fallback, array $preserve_map) {
-		if (AIPT_Safe_Merge::has_value($current)) {
-			return $current;
-		}
-		$key = wp_json_encode($path);
-		return array_key_exists($key, $preserve_map) ? $preserve_map[$key] : $fallback;
-	}
 
 	/**
 	 * Run a single translated string through wp_kses_post before it lands in the tree/meta,
@@ -546,83 +568,10 @@ class AIPT_Writer {
 			if ($kind === 'post' && (int) $id === $source_id) {
 				return $new_id;
 			}
-			$translated = ($kind === 'term') ? pll_get_term((int) $id, $target) : pll_get_post((int) $id, $target);
+			$translated = ($kind === 'term') ? aipt_lang()->term_translation((int) $id, $target) : aipt_lang()->post_translation((int) $id, $target);
 			return $translated ?: (int) $id;
 		};
 		return is_array($value) ? array_map($map, $value) : $map($value);
-	}
-
-	private static function suspend_polylang_sync(): array {
-		$state = array();
-		if (!function_exists('PLL')) {
-			return $state;
-		}
-
-		$polylang = PLL();
-		if (!is_object($polylang) || empty($polylang->sync) || !is_object($polylang->sync)) {
-			return $state;
-		}
-
-		$sync     = $polylang->sync;
-		$priority = has_action('pll_save_post', array($sync, 'pll_save_post'));
-		if ($priority !== false) {
-			remove_action('pll_save_post', array($sync, 'pll_save_post'), $priority);
-			$state['post']          = $sync;
-			$state['post_priority'] = $priority;
-		}
-
-		if (!empty($sync->post_metas) && is_object($sync->post_metas)) {
-			$post_metas = $sync->post_metas;
-			foreach (array('add', 'update', 'delete') as $operation) {
-				$hook     = $operation . '_post_metadata';
-				$priority = has_filter($hook, array($post_metas, 'can_synchronize_metadata'));
-				if ($priority !== false) {
-					remove_filter($hook, array($post_metas, 'can_synchronize_metadata'), $priority);
-					$state['post_meta_guards'][$hook] = array($post_metas, $priority);
-				}
-			}
-			$priority = has_action('pll_save_post', array($post_metas, 'save_object'));
-			if ($priority !== false) {
-				remove_action('pll_save_post', array($post_metas, 'save_object'), $priority);
-				$state['post_metas_save']          = $post_metas;
-				$state['post_metas_save_priority'] = $priority;
-			}
-			if (has_action('added_post_meta', array($post_metas, 'add_meta')) !== false
-				&& is_callable(array($post_metas, 'remove_all_meta_actions'))) {
-				$post_metas->remove_all_meta_actions();
-				$state['post_metas'] = $post_metas;
-			}
-		}
-
-		if (!empty($sync->taxonomies) && is_object($sync->taxonomies)) {
-			$priority = has_action('set_object_terms', array($sync->taxonomies, 'set_object_terms'));
-			if ($priority !== false) {
-				remove_action('set_object_terms', array($sync->taxonomies, 'set_object_terms'), $priority);
-				$state['taxonomies']          = $sync->taxonomies;
-				$state['taxonomies_priority'] = $priority;
-			}
-		}
-
-		return $state;
-	}
-
-	private static function restore_polylang_sync(array $state): void {
-		if (isset($state['post'])) {
-			add_action('pll_save_post', array($state['post'], 'pll_save_post'), $state['post_priority'], 3);
-		}
-		if (isset($state['post_metas_save'])) {
-			add_action('pll_save_post', array($state['post_metas_save'], 'save_object'), $state['post_metas_save_priority'], 3);
-		}
-		if (isset($state['post_metas']) && is_callable(array($state['post_metas'], 'add_all_meta_actions'))) {
-			$state['post_metas']->add_all_meta_actions();
-		}
-		foreach ($state['post_meta_guards'] ?? array() as $hook => $guard) {
-			list($post_metas, $priority) = $guard;
-			add_filter($hook, array($post_metas, 'can_synchronize_metadata'), $priority, 3);
-		}
-		if (isset($state['taxonomies'])) {
-			add_action('set_object_terms', array($state['taxonomies'], 'set_object_terms'), $state['taxonomies_priority'], 5);
-		}
 	}
 
 	private static function set_path(array &$tree, array $path, $value): void {

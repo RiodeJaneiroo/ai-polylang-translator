@@ -79,11 +79,15 @@ class AIPT_Auto {
 		}
 	}
 
-	// The multilingual plugin's custom-field sync must not copy the markers to other
-	// languages: a marker copied onto an unpublished source would block its
-	// auto-translation. Hooked by the adapter (AIPT_Lang::register_hooks()).
+	// The multilingual plugin's custom-field sync must not copy the plugin's own post meta
+	// (every key starting with _aipt_ is private to one post) to other languages: a marker
+	// copied onto an unpublished source would block its auto-translation, and a copied job
+	// id would point at the wrong post. Hooked by the adapter (AIPT_Lang::register_hooks()).
 	public static function exclude_meta($keys) {
-		return is_array($keys) ? array_values(array_diff($keys, array(self::MARKER, self::USER_META))) : $keys;
+		if (!is_array($keys)) {
+			return $keys;
+		}
+		return array_values(array_filter($keys, static fn($key): bool => !str_starts_with((string) $key, '_aipt_')));
 	}
 
 	// Runs on every save site-wide: cheapest checks first.

@@ -132,6 +132,48 @@ interface AIPT_Lang {
 	public function restore_sync(array $state): void;
 
 	/**
+	 * Meta key prefixes the backend owns on posts and terms; AIPT_Meta_Copy never copies them.
+	 *
+	 * @return string[]
+	 */
+	public function service_meta_prefixes(): array;
+
+	/**
+	 * Whether the backend has a string translation to read and write (strings(),
+	 * string_domains() and save_string_translation() return 'aipt_strings_unsupported'
+	 * otherwise, before any query).
+	 */
+	public function supports_strings(): bool;
+
+	/**
+	 * Strings of one string-translation domain (WPML String Translation context) whose
+	 * source language is $from, in ID order. 'translated' = a finished, non-empty
+	 * translation in $target exists.
+	 *
+	 * @return array<int, array{id: int, name: string, value: string, translated: bool}>|WP_Error
+	 *         'aipt_strings_unsupported' when the backend has no string translation to write to.
+	 */
+	public function strings(string $domain, string $from, string $target);
+
+	/**
+	 * String-translation domains that have strings whose source language is $from, by
+	 * name: 'total' = those strings, 'untranslated' = those with a non-empty value and
+	 * without a finished, non-empty translation in $target (the 'translated' rule of
+	 * strings(); placeholder-only values still count). Read-only.
+	 *
+	 * @return array<int, array{domain: string, total: int, untranslated: int}>|WP_Error
+	 *         'aipt_strings_unsupported' when the backend has no string translation.
+	 */
+	public function string_domains(string $from, string $target);
+
+	/**
+	 * Saves $text as the finished translation of string $id in $lang.
+	 *
+	 * @return true|WP_Error
+	 */
+	public function save_string_translation(int $id, string $lang, string $text);
+
+	/**
 	 * Polylang: pll_copy_post_metas; WPML: nothing (wpml-config.xml).
 	 */
 	public function register_hooks(): void;

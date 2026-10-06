@@ -246,6 +246,33 @@ class AIPT_Lang_Polylang implements AIPT_Lang {
 		add_filter('pll_copy_post_metas', array('AIPT_Auto', 'exclude_meta'));
 	}
 
+	// Languages and groups live in taxonomies; Polylang keeps its own data under _pll_.
+	public function service_meta_prefixes(): array {
+		return array('_pll_');
+	}
+
+	// Polylang stores string translations in its own language terms (PLL_MO), not as
+	// addressable strings with IDs: not implemented.
+	public function supports_strings(): bool {
+		return false;
+	}
+
+	public function strings(string $domain, string $from, string $target) {
+		return self::strings_unsupported();
+	}
+
+	public function string_domains(string $from, string $target) {
+		return self::strings_unsupported();
+	}
+
+	public function save_string_translation(int $id, string $lang, string $text) {
+		return self::strings_unsupported();
+	}
+
+	private static function strings_unsupported(): WP_Error {
+		return new WP_Error('aipt_strings_unsupported', __('String translation is only supported on WPML (String Translation).', 'ai-polylang-translator'));
+	}
+
 	/**
 	 * @return array<string, int> lang => id (existing posts only).
 	 */

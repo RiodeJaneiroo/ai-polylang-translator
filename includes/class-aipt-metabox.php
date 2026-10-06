@@ -139,7 +139,12 @@ class AIPT_Metabox {
 
 	private function load_job(int $post_id): array {
 		$job_id = sanitize_text_field(wp_unslash($_POST['job_id'] ?? ''));
-		$job    = AIPT_Job::get($job_id);
+		// Bulk jobs (durable ids) only go through the bulk layer: its revalidation before
+		// the write and its recovery journal (AIPT_Bulk_Ajax).
+		if (AIPT_Job_Store::is_durable($job_id)) {
+			wp_send_json_error(array('message' => __('Translation job not found or expired. Start over.', 'ai-polylang-translator')));
+		}
+		$job = AIPT_Job::get($job_id);
 		if (!AIPT_Pipeline::job_belongs($job, $post_id)) {
 			wp_send_json_error(array('message' => __('Translation job not found or expired. Start over.', 'ai-polylang-translator')));
 		}
@@ -168,7 +173,12 @@ class AIPT_Metabox {
 		$post_id = $this->guard();
 		list($job_id, $job) = $this->load_job($post_id);
 
-		$this->send(AIPT_Pipeline::finalize($job_id, $job));
+		$result = AIPT_Pipeline::finalize($job_id, $job);
+		// The job's stage after finalize is for the bulk layer; metabox.js does not get it.
+		if (is_array($result)) {
+			unset($result['stage']);
+		}
+		$this->send($result);
 	}
 
 	// metabox.js reads data.code only for needs_confirm; every other error is {message}.

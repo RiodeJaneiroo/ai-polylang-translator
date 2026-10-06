@@ -13,8 +13,8 @@ class AIPT_Terms {
 	/**
 	 * Rows are streamed to $on_row as they are produced: existing translations first
 	 * (before any API call), then the other terms in input order, each right after it
-	 * is created. Each row is an AIPT_Record::outcome() plus 'term' (WP_Term) and
-	 * 'chars' (dry run only). $on_row returning false stops further rows.
+	 * is created. Each row is an AIPT_Record::outcome() plus 'term' (WP_Term), 'chars'
+	 * (dry run only) and 'code' (the gateway error code of a failed translation). $on_row returning false stops further rows.
 	 *
 	 * Runs in the source language (AIPT_Lang::in_language): a backend that adjusts terms
 	 * to its current language (WPML outside wp-admin) must see the source terms; each new
@@ -56,15 +56,7 @@ class AIPT_Terms {
 			return;
 		}
 
-		$items = array();
-		foreach ($pending as $term_id => $term) {
-			if (AIPT_Extractor::is_translatable($term->name)) {
-				$items['t' . $term_id . 'n'] = array('id' => 't' . $term_id . 'n', 'text' => $term->name, 'term_id' => $term_id);
-			}
-			if (AIPT_Extractor::is_translatable($term->description)) {
-				$items['t' . $term_id . 'd'] = array('id' => 't' . $term_id . 'd', 'text' => $term->description, 'term_id' => $term_id);
-			}
-		}
+		$items = self::items($pending);
 
 		if ($dry_run_price !== null) {
 			self::dry_run($pending, $items, $target, $dry_run_price, $on_row);
@@ -74,46 +66,36 @@ class AIPT_Terms {
 		$translated = array();
 		$failed     = array();
 		$term_cost  = array();
-		$model      = AIPT_Settings::get()['model'];
-		$job_id     = wp_generate_uuid4();
 		$job_meta   = array(
 			'post_id' => 0,
 			'target'  => $target,
-			'model'   => $model,
+			'model'   => AIPT_Settings::get()['model'],
 			/* translators: %s: taxonomy name, e.g. "Categories" */
 			'title'   => sprintf(__('Terms: %s', 'ai-polylang-translator'), get_taxonomy($taxonomy)->labels->name),
 		);
-		$source_name = aipt_lang()->language_name($from);
-		$target_name = aipt_lang()->language_name($target);
-
-		foreach (AIPT_Extractor::build_batches(array_values($items)) as $keys) {
-			$map = array();
+		// A batch's cost is split evenly over the terms it holds.
+		AIPT_Gateway::translate_items(array_map(static fn(array $item): string => $item['text'], $items), $from, $target, $job_meta, '', static function (array $keys, $result, float $cost) use ($items, &$translated, &$failed, &$term_cost): bool {
 			$ids = array();
 			foreach ($keys as $key) {
-				$map[$key] = $items[$key]['text'];
 				$ids[$items[$key]['term_id']] = true;
 			}
-
-			$result = AIPT_Gateway::translate_map($map, $source_name, $target_name, $model);
-			// Billed even when the reply is rejected: record before looking at the result.
-			$usage = AIPT_Gateway::get_usage();
-			AIPT_Usage::record_job_usage($job_meta, $job_id, $usage);
 			foreach (array_keys($ids) as $term_id) {
-				$term_cost[$term_id] = ($term_cost[$term_id] ?? 0.0) + (float) $usage['cost'] / count($ids);
-			}
-
-			if (is_wp_error($result)) {
-				foreach (array_keys($ids) as $term_id) {
-					$failed[$term_id] = $result->get_error_message();
+				$term_cost[$term_id] = ($term_cost[$term_id] ?? 0.0) + $cost / count($ids);
+				if (is_wp_error($result)) {
+					$failed[$term_id] = $result;
 				}
-				continue;
 			}
-			$translated += $result;
-		}
+			if (!is_wp_error($result)) {
+				$translated += $result;
+			}
+			return true;
+		});
 
 		foreach ($pending as $term_id => $term) {
 			if (isset($failed[$term_id])) {
-				$outcome = AIPT_Record::outcome('error', 0, 0.0, 'translation failed: ' . $failed[$term_id]);
+				$outcome = AIPT_Record::outcome('error', 0, 0.0, 'translation failed: ' . $failed[$term_id]->get_error_message());
+				// The gateway's error code (aipt_http_401, …) for callers that react to it.
+				$outcome['code'] = $failed[$term_id]->get_error_code();
 			} else {
 				$name        = (string) ($translated['t' . $term_id . 'n'] ?? $term->name);
 				$description = (string) ($translated['t' . $term_id . 'd'] ?? $term->description);
@@ -124,6 +106,27 @@ class AIPT_Terms {
 				return;
 			}
 		}
+	}
+
+	/**
+	 * Gateway items of the terms (name and description when translatable), packed by
+	 * AIPT_Extractor::build_batches().
+	 *
+	 * @param WP_Term[] $terms
+	 * @return array<string, array{id: string, text: string, term_id: int}>
+	 */
+	public static function items(array $terms): array {
+		$items = array();
+		foreach ($terms as $term) {
+			$term_id = (int) $term->term_id;
+			if (AIPT_Extractor::is_translatable($term->name)) {
+				$items['t' . $term_id . 'n'] = array('id' => 't' . $term_id . 'n', 'text' => $term->name, 'term_id' => $term_id);
+			}
+			if (AIPT_Extractor::is_translatable($term->description)) {
+				$items['t' . $term_id . 'd'] = array('id' => 't' . $term_id . 'd', 'text' => $term->description, 'term_id' => $term_id);
+			}
+		}
+		return $items;
 	}
 
 	/**
@@ -261,6 +264,7 @@ class AIPT_Terms {
 			));
 		}
 
+		AIPT_Meta_Copy::term((int) $term->term_id, $new_id);
 		return AIPT_Record::outcome($status, $new_id, 0.0, $name);
 	}
 

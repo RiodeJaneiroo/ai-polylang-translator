@@ -17,8 +17,11 @@ if (!defined('ABSPATH')) {
 
 require_once __DIR__ . '/class-aipt-lang-wpml-tm.php';
 require_once __DIR__ . '/class-aipt-lang-wpml-sync.php';
+require_once __DIR__ . '/class-aipt-lang-wpml-strings.php';
 
 class AIPT_Lang_WPML implements AIPT_Lang {
+
+	use AIPT_Lang_WPML_Strings;
 
 	/** @var array<string, array{code: string, name: string}>|null */
 	private $languages = null;
@@ -332,7 +335,8 @@ class AIPT_Lang_WPML implements AIPT_Lang {
 	}
 
 	// Nothing: wpml-config.xml in the plugin root keeps the auto-translation markers
-	// (AIPT_Auto::MARKER, AIPT_Auto::USER_META) out of WPML's custom-field sync.
+	// (AIPT_Auto::MARKER, AIPT_Auto::USER_META) and the job id (AIPT_Pipeline::JOB_META)
+	// out of WPML's custom-field sync.
 	public function register_hooks(): void {
 	}
 

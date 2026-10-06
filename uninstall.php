@@ -14,6 +14,8 @@ delete_option('aipt_usage_lock');
 wp_unschedule_hook('aipt_auto_translate');
 delete_post_meta_by_key('_aipt_auto_scheduled');
 delete_post_meta_by_key('_aipt_auto_user');
+// Job that wrote each translation (AIPT_Pipeline::JOB_META).
+delete_post_meta_by_key('_aipt_job');
 
 global $wpdb;
 
@@ -24,6 +26,19 @@ $wpdb->query(
 	$wpdb->prepare(
 		"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
 		$wpdb->esc_like('aipt_job_finalize_') . '%'
+	)
+);
+
+// Remove durable jobs (AIPT_Job_Store: aipt_djob_<uuid>, aipt_djob_<uuid>_batch_<n>),
+// per-batch locks left by a killed request (aipt_batch_<job_id>_<n>), and the bulk page's
+// job locators (aipt_bulk_job_<post_id>_<lang>, AIPT_Bulk_Locator) and its
+// prepare/terms/strings lock rows (aipt_bulk_prep_*, aipt_bulk_terms_*, aipt_bulk_strings_*).
+$wpdb->query(
+	$wpdb->prepare(
+		"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s",
+		$wpdb->esc_like('aipt_djob_') . '%',
+		$wpdb->esc_like('aipt_batch_') . '%',
+		$wpdb->esc_like('aipt_bulk_') . '%'
 	)
 );
 

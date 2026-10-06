@@ -1,5 +1,9 @@
 <?php
-// Translation job state, transient-backed (TTL 1 hour).
+// Translation job state: the immutable payload, per-batch results and the completion
+// marker, stored as transients (TTL 1 hour) or durably (see AIPT_Job_Store) — plus the
+// DB-row locks (finalize, named, pair) and the raw option-row API they share with the
+// bulk locator and the durable job store (option_*: read straight from the database,
+// compare-and-swap writes).
 
 if (!defined('ABSPATH')) {
 	exit;
@@ -7,9 +11,11 @@ if (!defined('ABSPATH')) {
 
 class AIPT_Job {
 
-	const PREFIX = 'aipt_job_';
-	const TTL    = HOUR_IN_SECONDS;
 	const FINALIZE_LOCK_TTL = 300;
+	// Per-batch lock rows: aipt_batch_<job_id>_<index> (AIPT_Pipeline::translate_batch).
+	const BATCH_LOCK_PREFIX = 'aipt_batch_';
+	// Batch parts of a job: <job key>_batch_<index>.
+	const BATCH_SUFFIX = '_batch_';
 
 	private static $lock_owners = array();
 	// "<post_id>|<target>" => pair lock key taken by this process. The translation group
@@ -17,45 +23,50 @@ class AIPT_Job {
 	// and release use the key computed at acquire time.
 	private static $pair_keys = array();
 
-	public static function create(array $data): string {
+	/**
+	 * @param array $data    Job payload.
+	 * @param bool  $durable Store it (and its batches and completion marker) in
+	 *                       non-autoloaded options instead of transients, kept until delete()
+	 *                       (the bulk layer deletes it after reading the outcome of
+	 *                       AIPT_Finalize).
+	 * @return string Job id ("d-<uuid>" when durable), '' when it could not be stored.
+	 */
+	public static function create(array $data, bool $durable = false): string {
 		// The adapter the job was prepared with (AIPT_Pipeline refuses it under another)
 		// and the payload version: 2 since 1.6 (target_state, backend).
 		$data['backend'] = aipt_lang()->name();
 		$data['schema']  = 2;
-		$id = wp_generate_uuid4();
+		$id = AIPT_Job_Store::new_id($durable);
 		// A brand-new uuid key never matches an existing value, so a false here is a
 		// real storage failure (oversized payload, memcached/packet limit) rather than
 		// the "value unchanged" case. Bubble it up so prepare can warn the user.
-		if (!set_transient(self::PREFIX . $id, $data, self::TTL)) {
+		if (!AIPT_Job_Store::set($id, '', $data)) {
 			return '';
 		}
 		return $id;
 	}
 
 	public static function get(string $id): ?array {
-		if (!wp_is_uuid($id)) {
-			return null;
-		}
-		$data = get_transient(self::PREFIX . $id);
+		$data = AIPT_Job_Store::get($id);
 		return is_array($data) ? $data : null;
 	}
 
-	public static function save(string $id, array $data): void {
-		if (wp_is_uuid($id)) {
-			set_transient(self::PREFIX . $id, $data, self::TTL);
-		}
+	// get() read past the request's caches (AIPT_Job_Store::get_fresh()).
+	public static function get_fresh(string $id): ?array {
+		$data = AIPT_Job_Store::get_fresh($id);
+		return is_array($data) ? $data : null;
 	}
 
-	// Persist one batch's results AND its token usage in a single transient so
-	// concurrent batch requests never read-modify-write a shared blob (last-write-wins
-	// data loss), and so usage can never drift out of sync with the saved map: one
-	// atomic write per batch, eviction-symmetric (lose the payload, lose the usage, and
-	// the idempotent retry rewrites both).
+	public static function save(string $id, array $data): bool {
+		return AIPT_Job_Store::set($id, '', $data);
+	}
+
+	// Persist one batch's results AND its token usage in a single entry so concurrent
+	// batch requests never read-modify-write a shared blob (last-write-wins data loss),
+	// and so usage can never drift out of sync with the saved map: one atomic write per
+	// batch, eviction-symmetric (lose the payload, lose the usage, and the idempotent
+	// retry rewrites both).
 	public static function save_batch(string $id, int $index, array $results, array $usage = array()): bool {
-		if (!wp_is_uuid($id)) {
-			return false;
-		}
-		$key     = self::batch_key($id, $index);
 		$payload = array(
 			'map'   => $results,
 			'usage' => array(
@@ -64,31 +75,30 @@ class AIPT_Job {
 				'cost'       => (float) ($usage['cost'] ?? 0),
 			),
 		);
-		if (set_transient($key, $payload, self::TTL)) {
+		if (AIPT_Job_Store::set($id, self::batch_suffix($index), $payload)) {
 			return true;
 		}
-		// set_transient returns false when the value is unchanged too (idempotent
-		// retry of the same batch). Treat an existing readable transient as success.
-		return get_transient($key) !== false;
+		// set() already counts an equal stored value as saved; a false here is a failed
+		// write over a different stored value (another request saved this batch first).
+		// An existing readable entry counts as saved.
+		return AIPT_Job_Store::get($id, self::batch_suffix($index)) !== false;
 	}
 
-	public static function get_batch(string $id, int $index) {
-		if (!wp_is_uuid($id)) {
-			return false;
-		}
-		$batch = get_transient(self::batch_key($id, $index));
+	// $fresh: read past the request's caches (AIPT_Job_Store::get_fresh()).
+	public static function get_batch(string $id, int $index, bool $fresh = false) {
+		$batch = $fresh ? AIPT_Job_Store::get_fresh($id, self::batch_suffix($index)) : AIPT_Job_Store::get($id, self::batch_suffix($index));
 		return is_array($batch) ? self::batch_map($batch) : $batch;
 	}
 
-	// Collect every batch transient for a job. Returns the merged item_id => text
-	// map, or null if any batch in [0, $total) is missing.
+	// Collect every batch for a job. Returns the merged item_id => text map, or null if
+	// any batch in [0, $total) is missing.
 	public static function get_batches(string $id, int $total): ?array {
-		if (!wp_is_uuid($id)) {
+		if (!AIPT_Job_Store::is_valid($id)) {
 			return null;
 		}
 		$results = array();
 		for ($index = 0; $index < $total; $index++) {
-			$batch = get_transient(self::batch_key($id, $index));
+			$batch = AIPT_Job_Store::get($id, self::batch_suffix($index));
 			if (!is_array($batch)) {
 				return null;
 			}
@@ -104,32 +114,29 @@ class AIPT_Job {
 		return array_key_exists('map', $batch) ? (array) $batch['map'] : $batch;
 	}
 
+	// A durable job loses every option it has (payload, batches, completion marker) and
+	// its finalize lock row: a finalize still holding it finds the job gone and leaves.
 	public static function delete(string $id): void {
-		if (wp_is_uuid($id)) {
-			delete_transient(self::PREFIX . $id);
-			delete_option(self::lock_key($id));
+		if (!AIPT_Job_Store::is_valid($id)) {
+			return;
 		}
+		AIPT_Job_Store::purge($id);
+		delete_option(self::lock_key($id));
 	}
 
 	public static function delete_batches(string $id, int $total): void {
-		if (!wp_is_uuid($id)) {
-			return;
-		}
 		for ($index = 0; $index < $total; $index++) {
-			delete_transient(self::batch_key($id, $index));
+			AIPT_Job_Store::delete($id, self::batch_suffix($index));
 		}
 	}
 
-	// Sum token usage across every batch, reading the same transients save_batch() wrote.
-	// A missing transient (or a legacy bare-map payload from older code) counts as 0 so
+	// Sum token usage across every batch, reading the same entries save_batch() wrote.
+	// A missing entry (or a legacy bare-map payload from older code) counts as 0 so
 	// that cost tracking never blocks finalize.
 	public static function get_usage_total(string $id, int $total): array {
 		$totals = array('tokens_in' => 0, 'tokens_out' => 0, 'cost' => 0.0);
-		if (!wp_is_uuid($id)) {
-			return $totals;
-		}
 		for ($index = 0; $index < $total; $index++) {
-			$batch = get_transient(self::batch_key($id, $index));
+			$batch = AIPT_Job_Store::get($id, self::batch_suffix($index));
 			if (is_array($batch) && isset($batch['usage']) && is_array($batch['usage'])) {
 				$usage = $batch['usage'];
 				$totals['tokens_in']  += (int) ($usage['tokens_in'] ?? 0);
@@ -140,6 +147,41 @@ class AIPT_Job {
 		return $totals;
 	}
 
+	// Indexes of the batches saved so far, from the option names alone (durable jobs only:
+	// a transient job's parts are not listed).
+	public static function saved_batch_indexes(string $id): array {
+		$indexes = array();
+		foreach (AIPT_Job_Store::durable_names($id, self::BATCH_SUFFIX) as $name) {
+			if (preg_match('/_batch_(\d+)$/', $name, $m)) {
+				$indexes[] = (int) $m[1];
+			}
+		}
+		return $indexes;
+	}
+
+	public static function batch_lock_key(string $id, int $index): string {
+		return self::BATCH_LOCK_PREFIX . $id . '_' . $index;
+	}
+
+	/**
+	 * Run $fn under the named lock $key (acquire_named_lock()); $busy when it stays taken.
+	 * The lock is released after $fn, and on shutdown when a fatal error or the execution
+	 * time limit skips finally.
+	 *
+	 * @return mixed $fn's return value, or $busy.
+	 */
+	public static function with_named_lock(string $key, int $ttl, callable $fn, WP_Error $busy, int $tries = 50) {
+		if (!self::acquire_named_lock($key, $ttl, $tries)) {
+			return $busy;
+		}
+		register_shutdown_function(array(__CLASS__, 'release_named_lock'), $key);
+		try {
+			return $fn();
+		} finally {
+			self::release_named_lock($key);
+		}
+	}
+
 	// Generic named lock backed by a DB row (same INSERT IGNORE mechanic as the
 	// finalize lock). Used for usage-write serialisation across concurrent batch
 	// requests. $key must be a stable, globally unique option name (e.g. 'aipt_usage_lock').
@@ -147,25 +189,18 @@ class AIPT_Job {
 	// Spins up to $tries times with $usleep_us microseconds between attempts.
 	// Returns false only after exhausting all tries — callers should degrade gracefully.
 	public static function acquire_named_lock(string $key, int $ttl, int $tries = 50, int $usleep_us = 20000): bool {
-		global $wpdb;
-
 		for ($attempt = 0; $attempt < $tries; $attempt++) {
 			$now        = time();
 			$lock_value = self::new_lock_value($now);
-			if (self::insert_lock($key, $lock_value)) {
+			if (self::option_insert($key, $lock_value)) {
 				self::$lock_owners[$key] = $lock_value;
 				return true;
 			}
 
 			// Read the stored timestamp directly from the DB — the object cache may
 			// still reflect our own failed INSERT or a previous holder's write.
-			$stored_value = (string) $wpdb->get_var($wpdb->prepare(
-				"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-				$key
-			));
-			$locked_at = (int) $stored_value;
-
-			if ($locked_at && $locked_at > $now - $ttl) {
+			$stored_value = self::option_raw($key);
+			if (self::is_fresh($stored_value, $ttl)) {
 				// Lock is fresh — somebody else holds it; wait and retry.
 				usleep($usleep_us);
 				continue;
@@ -173,13 +208,13 @@ class AIPT_Job {
 
 			// Delete only the stale value we actually observed. If another contender
 			// replaced it first, leave that new owner's lock intact.
-			if ($stored_value !== '' && !self::delete_lock_value($key, $stored_value)) {
+			if ($stored_value !== '' && !self::option_delete_if($key, $stored_value)) {
 				usleep($usleep_us);
 				continue;
 			}
 
 			$lock_value = self::new_lock_value($now);
-			if (self::insert_lock($key, $lock_value)) {
+			if (self::option_insert($key, $lock_value)) {
 				self::$lock_owners[$key] = $lock_value;
 				return true;
 			}
@@ -197,11 +232,11 @@ class AIPT_Job {
 		}
 		$lock_value = self::$lock_owners[$key];
 		unset(self::$lock_owners[$key]);
-		self::delete_lock_value($key, $lock_value);
+		self::option_delete_if($key, $lock_value);
 	}
 
 	public static function acquire_finalize_lock(string $id): bool {
-		if (!wp_is_uuid($id)) {
+		if (!AIPT_Job_Store::is_valid($id)) {
 			return false;
 		}
 
@@ -213,7 +248,7 @@ class AIPT_Job {
 		// INSERT ... ON DUPLICATE KEY UPDATE), so two concurrent finalizes can both
 		// "win" it. INSERT IGNORE wins only when it actually inserts the row, mirroring
 		// WP_Upgrader::create_lock() in core.
-		if (self::insert_lock($key, $lock_value)) {
+		if (self::option_insert($key, $lock_value)) {
 			self::$lock_owners[$key] = $lock_value;
 			return true;
 		}
@@ -221,22 +256,17 @@ class AIPT_Job {
 		// Stale takeover. Read the stored timestamp straight from the DB (the object
 		// cache may not know about our raw INSERT). If it is still fresh, somebody else
 		// holds the lock; otherwise drop it and try the atomic insert one more time.
-		global $wpdb;
-		$stored_value = (string) $wpdb->get_var($wpdb->prepare(
-			"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-			$key
-		));
-		$locked_at = (int) $stored_value;
-		if ($locked_at && $locked_at > $now - self::FINALIZE_LOCK_TTL) {
+		$stored_value = self::option_raw($key);
+		if (self::is_fresh($stored_value, self::FINALIZE_LOCK_TTL)) {
 			return false;
 		}
 
-		if ($stored_value !== '' && !self::delete_lock_value($key, $stored_value)) {
+		if ($stored_value !== '' && !self::option_delete_if($key, $stored_value)) {
 			return false;
 		}
 
 		$lock_value = self::new_lock_value($now);
-		if (!self::insert_lock($key, $lock_value)) {
+		if (!self::option_insert($key, $lock_value)) {
 			return false;
 		}
 		self::$lock_owners[$key] = $lock_value;
@@ -253,22 +283,22 @@ class AIPT_Job {
 		$now = time();
 
 		$lock_value = self::new_lock_value($now) . ':' . $ttl . ':' . $holder;
-		if (self::insert_lock($key, $lock_value)) {
+		if (self::option_insert($key, $lock_value)) {
 			self::$lock_owners[$key]                   = $lock_value;
 			self::$pair_keys[$post_id . '|' . $target] = $key;
 			return true;
 		}
 
-		$stored_value = self::stored_lock_value($key);
+		$stored_value = self::option_raw($key);
 		if (self::pair_lock_is_fresh($stored_value, $now)) {
 			return false;
 		}
-		if ($stored_value !== '' && !self::delete_lock_value($key, $stored_value)) {
+		if ($stored_value !== '' && !self::option_delete_if($key, $stored_value)) {
 			return false;
 		}
 
 		$lock_value = self::new_lock_value($now) . ':' . $ttl . ':' . $holder;
-		if (!self::insert_lock($key, $lock_value)) {
+		if (!self::option_insert($key, $lock_value)) {
 			return false;
 		}
 		self::$lock_owners[$key]                   = $lock_value;
@@ -278,7 +308,7 @@ class AIPT_Job {
 
 	// Role of the current fresh holder ('cli', 'editor', 'auto'), or '' when the pair is free.
 	public static function pair_lock_holder(int $post_id, string $target): string {
-		$stored_value = self::stored_lock_value(self::pair_lock_key($post_id, $target));
+		$stored_value = self::option_raw(self::pair_lock_key($post_id, $target));
 		if (!self::pair_lock_is_fresh($stored_value, time())) {
 			return '';
 		}
@@ -289,7 +319,6 @@ class AIPT_Job {
 	// Heartbeat for long records: move our own lock's timestamp forward so the TTL
 	// counts from the last finished batch. No-op when this process does not hold it.
 	public static function refresh_pair_lock(int $post_id, string $target): void {
-		global $wpdb;
 		$key = self::$pair_keys[$post_id . '|' . $target] ?? '';
 		if ($key === '' || !isset(self::$lock_owners[$key])) {
 			return;
@@ -297,14 +326,7 @@ class AIPT_Job {
 		$parts    = explode(':', self::$lock_owners[$key]);
 		$parts[0] = (string) time();
 		$value    = implode(':', $parts);
-		$updated  = $wpdb->query($wpdb->prepare(
-			"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
-			$value,
-			$key,
-			self::$lock_owners[$key]
-		));
-		self::clear_lock_cache($key);
-		if ($updated === 1) {
+		if (self::option_replace_if($key, self::$lock_owners[$key], $value)) {
 			self::$lock_owners[$key] = $value;
 		}
 	}
@@ -328,15 +350,6 @@ class AIPT_Job {
 		return $locked_at && $ttl > 0 && $locked_at > $now - $ttl;
 	}
 
-	// Read straight from the DB — the object cache may not know about a raw INSERT.
-	private static function stored_lock_value(string $key): string {
-		global $wpdb;
-		return (string) $wpdb->get_var($wpdb->prepare(
-			"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-			$key
-		));
-	}
-
 	// Keyed per translation group (AIPT_Lang::group_id()), not per source post: two
 	// members of one group translated into the same language write the same target.
 	private static function pair_lock_key(int $post_id, string $target): string {
@@ -347,45 +360,107 @@ class AIPT_Job {
 		return $now . ':' . wp_generate_uuid4();
 	}
 
-	private static function insert_lock(string $key, string $lock_value): bool {
+	// A "<time>:…" lock row taken less than $ttl seconds ago.
+	private static function is_fresh(string $stored_value, int $ttl): bool {
+		$locked_at = (int) $stored_value;
+		return $locked_at && $locked_at > time() - $ttl;
+	}
+
+	// ---- Raw option rows -------------------------------------------------------
+	// Rows other requests insert, swap and delete concurrently (locks, bulk locators,
+	// durable job parts): read straight from the database (the object cache may not know
+	// about a raw INSERT or another request's compare-and-swap), written only with a
+	// compare on the value read; every write drops the key and 'notoptions' from the
+	// object cache so later reads see the row as it is.
+
+	// Raw stored value, '' when there is no row.
+	public static function option_raw(string $key): string {
+		global $wpdb;
+		return (string) $wpdb->get_var($wpdb->prepare(
+			"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+			$key
+		));
+	}
+
+	// Insert a non-autoloaded row; false when a row with this name exists.
+	public static function option_insert(string $key, string $value): bool {
 		global $wpdb;
 		$inserted = $wpdb->query($wpdb->prepare(
 			"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'off')",
 			$key,
-			$lock_value
+			$value
 		));
-		// Drop any stale cached "option does not exist" entry so later reads see the row.
-		self::clear_lock_cache($key);
+		self::option_forget($key);
 		return $inserted === 1;
 	}
 
-	private static function delete_lock_value(string $key, string $lock_value): bool {
+	// Replace the row's value only while it still holds $raw.
+	public static function option_replace_if(string $key, string $raw, string $new): bool {
+		global $wpdb;
+		$updated = $wpdb->query($wpdb->prepare(
+			"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+			$new,
+			$key,
+			$raw
+		));
+		self::option_forget($key);
+		return $updated === 1;
+	}
+
+	// Delete the row only while it still holds $raw.
+	public static function option_delete_if(string $key, string $raw): bool {
 		global $wpdb;
 		$deleted = $wpdb->query($wpdb->prepare(
 			"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
 			$key,
-			$lock_value
+			$raw
 		));
-		self::clear_lock_cache($key);
+		self::option_forget($key);
 		return $deleted === 1;
 	}
 
-	private static function clear_lock_cache(string $key): void {
+	public static function option_forget(string $key): void {
 		wp_cache_delete($key, 'options');
 		wp_cache_delete('notoptions', 'options');
 	}
 
+	// Whether a finalize of this job holds its lock right now (a fresh row).
+	public static function finalize_lock_held(string $id): bool {
+		if (!AIPT_Job_Store::is_valid($id)) {
+			return false;
+		}
+		return self::is_fresh(self::option_raw(self::lock_key($id)), self::FINALIZE_LOCK_TTL);
+	}
+
+	// Whether a batch request of this job holds its lock right now (batch_lock_key() rows).
+	public static function batch_lock_held(string $id, int $ttl): bool {
+		global $wpdb;
+		if (!AIPT_Job_Store::is_valid($id)) {
+			return false;
+		}
+		$values = $wpdb->get_col($wpdb->prepare(
+			"SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE %s",
+			$wpdb->esc_like(self::BATCH_LOCK_PREFIX . $id . '_') . '%'
+		));
+		foreach ($values as $value) {
+			if (self::is_fresh((string) $value, $ttl)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public static function release_finalize_lock(string $id): void {
-		if (wp_is_uuid($id)) {
+		if (AIPT_Job_Store::is_valid($id)) {
 			self::release_named_lock(self::lock_key($id));
 		}
 	}
 
 	private static function lock_key(string $id): string {
-		return self::PREFIX . 'finalize_' . $id;
+		return AIPT_Job_Store::PREFIX . 'finalize_' . $id;
 	}
 
-	private static function batch_key(string $id, int $index): string {
-		return self::PREFIX . $id . '_batch_' . $index;
+	private static function batch_suffix(int $index): string {
+		return self::BATCH_SUFFIX . $index;
 	}
 }

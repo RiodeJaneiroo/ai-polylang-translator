@@ -53,7 +53,7 @@ class AIPT_Job_Builder {
 		if ($existing && !current_user_can('edit_post', $existing)) {
 			return new WP_Error('aipt_cannot_edit_translation', __('Insufficient permissions to modify the existing translation.', 'ai-polylang-translator'));
 		}
-		if (!$existing && !self::can_create_translation($post)) {
+		if (!$existing && !AIPT_Record::can_create_translation($post)) {
 			return new WP_Error('aipt_cannot_create_translation', __('Insufficient permissions to create a translation.', 'ai-polylang-translator'));
 		}
 		$mode = AIPT_Record::effective_mode($state, $mode);
@@ -112,11 +112,13 @@ class AIPT_Job_Builder {
 		if ($extract['blocks']) {
 			$job['blocks'] = $extract['blocks'];
 		}
-		return $job;
-	}
+		// Snapshot for AIPT_Runner::revalidate_before_write(). requested_status is the status
+		// asked for before AIPT_Runner::new_post_status() turned it into post_status.
+		$requested = (string) ($opts['requested_status'] ?? $post_status);
 
-	private static function can_create_translation(WP_Post $post): bool {
-		$post_type = get_post_type_object($post->post_type);
-		return $post_type && current_user_can($post_type->cap->create_posts);
+		$job['source_lang']      = $source_lang;
+		$job['source_modified']  = $post->post_modified_gmt;
+		$job['requested_status'] = in_array($requested, AIPT_Pipeline::POST_STATUSES, true) ? $requested : $post_status;
+		return $job;
 	}
 }

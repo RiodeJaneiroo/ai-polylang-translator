@@ -120,6 +120,28 @@ class AIPT_CLI_Args {
 		return $taxonomies;
 	}
 
+	// String domains (WPML String Translation contexts). Strings include site options
+	// (e.g. Yoast SEO title templates), so translating them needs manage_options.
+	public static function domains(array $assoc_args): array {
+		$domains = array_values(array_unique(self::csv($assoc_args['domains'] ?? '')));
+		if (!$domains) {
+			WP_CLI::error('--domains is required.');
+		}
+		if (!current_user_can('manage_options')) {
+			WP_CLI::error('The current user cannot manage options (needed to translate strings).');
+		}
+		return $domains;
+	}
+
+	// true = re-translate strings that already have a finished translation.
+	public static function string_mode(array $assoc_args): bool {
+		$mode = (string) ($assoc_args['mode'] ?? '');
+		if ($mode !== '' && $mode !== 'update') {
+			WP_CLI::error('--mode must be update.');
+		}
+		return $mode === 'update';
+	}
+
 	public static function require_api_key(bool $dry_run): void {
 		if (!$dry_run && AIPT_Settings::api_key() === '') {
 			WP_CLI::error('API key is not set (Settings > AI Translator).');

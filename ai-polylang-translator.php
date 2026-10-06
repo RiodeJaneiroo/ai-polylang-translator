@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translator for Polylang & WPML
  * Description: AI translation of posts, WooCommerce products, terms and ACF fields into other Polylang or WPML languages via Vercel AI Gateway.
- * Version: 1.6.0
+ * Version: 1.7.0
  * Author: Vadym Zm
  * Author URI: https://artzm.dev/
  * Text Domain: ai-polylang-translator
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
-define('AIPT_VERSION', '1.6.0');
+define('AIPT_VERSION', '1.7.0');
 define('AIPT_FILE', __FILE__);
 define('AIPT_DIR', plugin_dir_path(__FILE__));
 define('AIPT_URL', plugin_dir_url(__FILE__));
@@ -68,16 +68,24 @@ add_action('plugins_loaded', function () {
 	require_once AIPT_DIR . 'includes/class-aipt-safe-merge.php';
 	require_once AIPT_DIR . 'includes/class-aipt-gateway.php';
 	require_once AIPT_DIR . 'includes/class-aipt-blocks.php';
+	require_once AIPT_DIR . 'includes/class-aipt-block-refs.php';
 	require_once AIPT_DIR . 'includes/class-aipt-extractor.php';
 	require_once AIPT_DIR . 'includes/class-aipt-woo.php';
+	require_once AIPT_DIR . 'includes/class-aipt-job-store.php';
 	require_once AIPT_DIR . 'includes/class-aipt-job.php';
 	require_once AIPT_DIR . 'includes/class-aipt-usage.php';
 	require_once AIPT_DIR . 'includes/class-aipt-slug.php';
+	require_once AIPT_DIR . 'includes/class-aipt-meta-copy.php';
 	require_once AIPT_DIR . 'includes/class-aipt-writer.php';
 	require_once AIPT_DIR . 'includes/class-aipt-record.php';
 	require_once AIPT_DIR . 'includes/class-aipt-job-builder.php';
 	require_once AIPT_DIR . 'includes/class-aipt-pipeline.php';
+	require_once AIPT_DIR . 'includes/class-aipt-finalize.php';
 	require_once AIPT_DIR . 'includes/class-aipt-terms.php';
+	require_once AIPT_DIR . 'includes/class-aipt-strings.php';
+	require_once AIPT_DIR . 'includes/class-aipt-select.php';
+	require_once AIPT_DIR . 'includes/class-aipt-runner-context.php';
+	require_once AIPT_DIR . 'includes/class-aipt-runner.php';
 	require_once AIPT_DIR . 'includes/class-aipt-auto.php';
 	require_once AIPT_DIR . 'includes/class-aipt-metabox.php';
 
@@ -94,16 +102,27 @@ add_action('plugins_loaded', function () {
 
 	$lang->register_hooks();
 	AIPT_Auto::register();
+	AIPT_Block_Refs::register();
 
+	// The bulk page and its AJAX actions (admin-ajax.php is admin too).
 	if (is_admin()) {
+		require_once AIPT_DIR . 'includes/class-aipt-bulk-locator.php';
+		require_once AIPT_DIR . 'includes/class-aipt-bulk-jobs.php';
+		require_once AIPT_DIR . 'includes/class-aipt-bulk-terms.php';
+		require_once AIPT_DIR . 'includes/class-aipt-bulk-request.php';
+		require_once AIPT_DIR . 'includes/class-aipt-bulk-ajax.php';
+		require_once AIPT_DIR . 'includes/class-aipt-bulk-strings.php';
+		require_once AIPT_DIR . 'includes/class-aipt-bulk-page.php';
 		new AIPT_Settings();
 		new AIPT_Metabox();
+		new AIPT_Bulk_Ajax();
+		new AIPT_Bulk_Strings();
+		new AIPT_Bulk_Page();
 	}
 
 	if (defined('WP_CLI') && WP_CLI) {
 		require_once AIPT_DIR . 'includes/class-aipt-cli-args.php';
 		require_once AIPT_DIR . 'includes/class-aipt-cli-log.php';
-		require_once AIPT_DIR . 'includes/class-aipt-cli-select.php';
 		require_once AIPT_DIR . 'includes/class-aipt-cli.php';
 		WP_CLI::add_command('aipt', 'AIPT_CLI');
 	}

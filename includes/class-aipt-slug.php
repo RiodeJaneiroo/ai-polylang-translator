@@ -37,11 +37,16 @@ class AIPT_Slug {
 	// (cyr2lat with the uk table leaves Russian ы, э, ё, ъ untouched), and whatever stays
 	// non-ASCII ends up percent-encoded in the slug. $lang is the target language code.
 	public static function from_title(string $title, string $lang = ''): string {
-		$title = remove_accents(html_entity_decode($title, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+		$title = remove_accents(self::decode($title));
 		if (preg_match('/[^\x00-\x7F]/', $title)) {
 			$title = strtr($title, self::cyrillic($lang === 'uk'));
 		}
 		return sanitize_title($title);
+	}
+
+	// Plain text of a stored title or term name (entities decoded), for slugs and logs.
+	public static function decode(string $text): string {
+		return html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 	}
 
 	private static function cyrillic(bool $ukrainian): array {

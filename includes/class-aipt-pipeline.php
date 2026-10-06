@@ -18,13 +18,20 @@ class AIPT_Pipeline {
 
 	const POST_STATUSES = array('draft', 'pending', 'private', 'future', 'publish');
 
+	// Post meta on every post the pipeline writes: the job (or, for translate_post(), the
+	// cost-log key) that wrote it, so a partial write can be traced to its job.
+	const JOB_META = '_aipt_job';
+
 	// Depth of AIPT_Writer calls in progress, so save hooks can tell the plugin's own
 	// writes from other saves.
 	private static $writing = 0;
 
 	/**
 	 * @param array $opts mode ('overwrite'|'safe'), confirm (bool), post_status (new
-	 *                    translations only, default 'draft'), keep_date (bool).
+	 *                    translations only, default 'draft'), requested_status (the status
+	 *                    asked for before AIPT_Runner::new_post_status(), default post_status),
+	 *                    keep_date (bool), durable (bool: job stored in options instead of
+	 *                    transients, AIPT_Job_Store).
 	 * @return array|WP_Error {job_id, total}
 	 */
 	public static function prepare(int $post_id, string $target, array $opts = array()) {
@@ -33,10 +40,10 @@ class AIPT_Pipeline {
 			return $job;
 		}
 
-		// Immutable payload: written once here and never rewritten. Per-batch results
-		// live in their own transients so concurrent batch requests cannot clobber a
-		// shared blob (last-write-wins data loss).
-		$job_id = AIPT_Job::create($job);
+		// Payload written once here; only finalize adds its stage and outcome. Per-batch
+		// results live in their own entries (AIPT_Job_Store) so concurrent batch requests
+		// cannot clobber a shared blob (last-write-wins data loss).
+		$job_id = AIPT_Job::create($job, !empty($opts['durable']));
 		if ($job_id === '') {
 			return new WP_Error('aipt_job_too_large', __('Could not save the translation job — the payload is too large. Contact an administrator.', 'ai-polylang-translator'));
 		}
@@ -45,10 +52,19 @@ class AIPT_Pipeline {
 	}
 
 	/**
-	 * Translate one batch. Idempotent: a finished batch is never re-translated.
+	 * Translate one batch. Idempotent: a finished batch is never re-translated. The
+	 * lookup, the API call and the save run under a per-batch lock, so two requests for
+	 * the same batch (a retry overlapping a slow request, a reopened tab) never both pay;
+	 * under it the batch and the job are read again past the request's caches: a job that
+	 * is gone is 'aipt_job_expired', one already finalizing or complete is reported as
+	 * reused (no API call).
 	 *
 	 * @param array|null $usage Receives this call's token usage (zeros when no API call was made).
-	 * @return array|WP_Error {done, total}
+	 * @return array|WP_Error {done, total, reused (batch was already saved), usage
+	 *                        {tokens_in, tokens_out, cost}}. 'aipt_batch_busy' when another
+	 *                        request holds the batch; errors after an API call carry
+	 *                        {cost, api_calls} as 'aipt_usage' error data. Gateway errors
+	 *                        keep their codes (aipt_http, aipt_http_<status>, aipt_bad_json…).
 	 */
 	public static function translate_batch(string $job_id, array $job, int $index, ?array &$usage = null) {
 		$usage   = array('tokens_in' => 0, 'tokens_out' => 0, 'cost' => 0.0);
@@ -62,19 +78,54 @@ class AIPT_Pipeline {
 		}
 
 		if (AIPT_Job::get_batch($job_id, $index) !== false) {
-			return array('done' => $index + 1, 'total' => $total);
+			return self::batch_done($index, $total, true, $usage);
 		}
 
-		$result = self::request_batch($job_id, $job, $index, $usage);
-		if (is_wp_error($result)) {
-			return $result;
-		}
+		return AIPT_Job::with_named_lock(
+			AIPT_Job::batch_lock_key($job_id, $index),
+			self::batch_lock_ttl(),
+			static function () use ($job_id, $index, $total, &$usage) {
+				// The request that held the lock may have saved it meanwhile.
+				if (AIPT_Job::get_batch($job_id, $index, true) !== false) {
+					return self::batch_done($index, $total, true, $usage);
+				}
+				// The payload loaded before the lock may be stale: the job may have been
+				// finalized, discarded or replaced meanwhile. Never pay for such a job.
+				$job = AIPT_Job::get_fresh($job_id);
+				if (!$job) {
+					return new WP_Error('aipt_job_expired', __('Translation job not found or expired. Start over.', 'ai-polylang-translator'));
+				}
+				if (self::job_stage($job) !== 'none') {
+					return self::batch_done($index, $total, true, $usage);
+				}
 
-		if (!AIPT_Job::save_batch($job_id, $index, $result, $usage)) {
-			return new WP_Error('aipt_batch_too_large', __('Could not save the translation result — the payload is too large. Contact an administrator.', 'ai-polylang-translator'));
-		}
+				$result = self::request_batch($job_id, $job, $index, $usage);
+				if (is_wp_error($result)) {
+					return self::with_usage($result, (float) $usage['cost'], 1);
+				}
 
-		return array('done' => $index + 1, 'total' => $total);
+				if (!AIPT_Job::save_batch($job_id, $index, $result, $usage)) {
+					return self::with_usage(
+						new WP_Error('aipt_batch_too_large', __('Could not save the translation result — the payload is too large. Contact an administrator.', 'ai-polylang-translator')),
+						(float) $usage['cost'],
+						1
+					);
+				}
+				return self::batch_done($index, $total, false, $usage);
+			},
+			new WP_Error('aipt_batch_busy', __('This block is already being translated by another request. Try again in a few minutes.', 'ai-polylang-translator'))
+		);
+	}
+
+	private static function batch_done(int $index, int $total, bool $reused, array $usage): array {
+		return array('done' => $index + 1, 'total' => $total, 'reused' => $reused, 'usage' => $usage);
+	}
+
+	// Long enough for one translate_map() at the configured gateway timeout (up to four
+	// sequential posts: the HTTP 400 retry, twice with the missing-keys retry), so a live
+	// request's lock is never taken over as stale.
+	public static function batch_lock_ttl(): int {
+		return max(240, (int) AIPT_Settings::get()['timeout'] * 4 + 60);
 	}
 
 	/**
@@ -115,59 +166,23 @@ class AIPT_Pipeline {
 	}
 
 	/**
-	 * Merge the batch results and write the translation (editor path). $job must already
-	 * be verified to belong to the current user; it is re-read and re-checked under the
-	 * finalize lock.
+	 * Merge the batch results and write the translation (editor path; AIPT_Finalize).
+	 * $job must already be verified to belong to the current user; it is re-read and
+	 * re-checked under the finalize lock.
 	 *
-	 * @return array|WP_Error {post_id, edit_link}
+	 * @return array|WP_Error {post_id, edit_link, warning, outcome (created|updated, with a
+	 *                        '_with_warning' suffix)}. A write with a warning returns the
+	 *                        warning as an error the first time; a repeated finalize
+	 *                        returns the link with the warning text. A durable job whose
+	 *                        earlier write died midway: 'aipt_finalize_interrupted'.
 	 */
 	public static function finalize(string $job_id, array $job) {
-		$backend = self::backend_error($job);
-		if ($backend) {
-			return $backend;
-		}
-		// A repeated finalize after a successful write returns the saved translation.
-		if (($job['status'] ?? '') === 'complete') {
-			return self::finalized_result($job);
-		}
+		return AIPT_Finalize::run($job_id, $job);
+	}
 
-		$post_id = (int) ($job['post_id'] ?? 0);
-		$total   = count($job['batches']);
-		$results = AIPT_Job::get_batches($job_id, $total);
-		if ($results === null) {
-			return new WP_Error('aipt_incomplete_batches', __('Not all blocks are translated — finalization is not possible.', 'ai-polylang-translator'));
-		}
-
-		if (!AIPT_Job::acquire_finalize_lock($job_id)) {
-			return new WP_Error('aipt_finalize_locked', __('The translation is already being saved. Try again in a few seconds.', 'ai-polylang-translator'));
-		}
-
-		$error = null;
-		try {
-			$job = AIPT_Job::get($job_id);
-			if (!self::job_belongs($job, $post_id)) {
-				$error = new WP_Error('aipt_job_expired', __('Translation job not found or expired. Start over.', 'ai-polylang-translator'));
-			} elseif (($job['status'] ?? '') !== 'complete') {
-				// A 'complete' status here means a concurrent finalize won while we waited.
-				$written = self::write_job($job_id, $job, $results, $total);
-				if (is_wp_error($written)) {
-					// Batch transients stay in place so the user can retry finalize — unless
-					// the translation was written with a warning: then the job is already
-					// complete and the retry returns its link.
-					$error = $written;
-				} else {
-					$job = $written;
-				}
-			}
-		} finally {
-			AIPT_Job::release_finalize_lock($job_id);
-		}
-
-		if ($error) {
-			return $error;
-		}
-
-		return self::finalized_result($job);
+	// none | finalizing | complete, see AIPT_Finalize::stage().
+	public static function job_stage(array $job): string {
+		return AIPT_Finalize::stage($job);
 	}
 
 	/**
@@ -234,10 +249,18 @@ class AIPT_Pipeline {
 		return self::$writing > 0;
 	}
 
+	// The job exists and was started by the current user.
+	public static function job_owned(?array $job): bool {
+		return $job && (int) ($job['user_id'] ?? 0) === get_current_user_id();
+	}
+
 	public static function job_belongs(?array $job, int $post_id): bool {
-		return $job
-			&& (int) ($job['user_id'] ?? 0) === get_current_user_id()
-			&& (int) ($job['post_id'] ?? 0) === $post_id;
+		return self::job_owned($job) && (int) ($job['post_id'] ?? 0) === $post_id;
+	}
+
+	// created|updated (the job updates an existing translation), with '_with_warning'.
+	public static function outcome_status(array $job, bool $warning): string {
+		return (!empty($job['existing']) ? 'updated' : 'created') . ($warning ? '_with_warning' : '');
 	}
 
 	/**
@@ -245,7 +268,7 @@ class AIPT_Pipeline {
 	 * site switched between Polylang and WPML within the job's TTL) is refused and left
 	 * intact; a job without 'backend' was prepared before 1.6, when only Polylang existed.
 	 */
-	private static function backend_error(array $job): ?WP_Error {
+	public static function backend_error(array $job): ?WP_Error {
 		if (($job['backend'] ?? 'polylang') === aipt_lang()->name()) {
 			return null;
 		}
@@ -265,7 +288,7 @@ class AIPT_Pipeline {
 			return $job;
 		}
 
-		// Never stored; it only keys this record's row in the cost log.
+		// Never stored; it keys this record's row in the cost log and the JOB_META of the post.
 		$job_id    = wp_generate_uuid4();
 		$results   = array();
 		$cost      = 0.0;
@@ -284,7 +307,7 @@ class AIPT_Pipeline {
 		// A stale group after minutes of batches would unlink a translation saved meanwhile.
 		aipt_lang()->refresh();
 		$job['results'] = $results;
-		$new_id         = self::write($job);
+		$new_id         = self::write($job, $job_id);
 		$warning        = '';
 		$written        = self::finish_failure($new_id);
 		if ($written) {
@@ -294,10 +317,9 @@ class AIPT_Pipeline {
 			return self::with_usage($new_id, $cost, $api_calls);
 		}
 
-		$status = !empty($job['existing']) ? 'updated' : 'created';
 		return array(
 			'target_id' => (int) $new_id,
-			'status'    => $warning !== '' ? $status . '_with_warning' : $status,
+			'status'    => self::outcome_status($job, $warning !== ''),
 			'cost'      => $cost,
 			'api_calls' => $api_calls,
 			'warning'   => $warning,
@@ -305,74 +327,22 @@ class AIPT_Pipeline {
 	}
 
 	/**
-	 * @return array|WP_Error Updated job with the completion marker, or the writer's
-	 *                        warning when the translation was written but not finished.
-	 */
-	private static function write_job(string $job_id, array $job, array $results, int $total) {
-		$post_id = (int) $job['post_id'];
-		$target  = (string) $job['target'];
-		if (!AIPT_Job::acquire_pair_lock($post_id, $target, self::EDITOR_PAIR_LOCK_TTL, 'editor')) {
-			return self::pair_busy_error($post_id, $target);
-		}
-		// The writer re-checks the target state against the job: read it fresh.
-		aipt_lang()->refresh();
-
-		try {
-			$job['results'] = $results;
-
-			$new_id  = self::write($job);
-			$warning = null;
-			$written = self::finish_failure($new_id);
-			if ($written) {
-				// The translation exists and is linked; only its status/slug update failed or
-				// some content kept its source text. The editor shows one message: join them.
-				$warning = new WP_Error($new_id->get_error_code(), self::warning_text($new_id), $new_id->get_error_data());
-				$new_id  = $written;
-			} elseif (is_wp_error($new_id)) {
-				return $new_id;
-			}
-
-			// Keep a small completion marker so a duplicate finalize returns the
-			// link; drop the per-batch result transients (the large blobs).
-			unset($job['results']);
-			$job['status']       = 'complete';
-			$job['finalized_id'] = (int) $new_id;
-			AIPT_Job::save($job_id, $job);
-
-			// Jobs prepared before per-request accounting was introduced have
-			// usage only in their batch transients. Aggregate it before cleanup.
-			if (empty($job['usage_recorded_per_batch'])) {
-				AIPT_Usage::record_job_usage(
-					$job,
-					$job_id,
-					AIPT_Job::get_usage_total($job_id, $total)
-				);
-			}
-
-			AIPT_Job::delete_batches($job_id, $total);
-			return $warning ?: $job;
-		} finally {
-			AIPT_Job::release_pair_lock($post_id, $target);
-		}
-	}
-
-	/**
-	 * Every write goes through here. The written post (new or updated, also when only
-	 * its final status/slug update failed) gets the auto-translation marker, so a
-	 * plugin-written post in the default language that is published later — future →
-	 * publish, or a draft published by a person — is never auto-translated.
+	 * Every write goes through here. The writer tags the written post (new or updated)
+	 * as soon as it exists with the post meta in $job['tag_meta']: the auto-translation
+	 * marker, so a plugin-written post in the default language that is published later —
+	 * future → publish, or a draft published by a person — is never auto-translated; and
+	 * the job id (JOB_META).
+	 *
+	 * The caller must hold the pair lock (AIPT_Job::acquire_pair_lock) and, for a durable
+	 * job, have saved its 'finalizing' stage (AIPT_Finalize).
 	 *
 	 * @return int|WP_Error
 	 */
-	private static function write(array $job) {
+	public static function write(array $job, string $job_id) {
 		self::$writing++;
 		try {
-			$written = AIPT_Writer::write($job);
-			$post_id = is_wp_error($written) ? self::written_id($written) : (int) $written;
-			if ($post_id) {
-				update_post_meta($post_id, AIPT_Auto::MARKER, time());
-			}
-			return $written;
+			$job['tag_meta'] = array(AIPT_Auto::MARKER => time(), self::JOB_META => $job_id);
+			return AIPT_Writer::write($job);
 		} finally {
 			self::$writing--;
 		}
@@ -381,7 +351,7 @@ class AIPT_Pipeline {
 	// Post ID of a translation that was written with a warning ('aipt_written_with_warning':
 	// its final status/slug update failed, or a content chunk kept its source text because
 	// the block tokens came back changed), else 0.
-	private static function finish_failure($written): int {
+	public static function finish_failure($written): int {
 		if (!is_wp_error($written) || $written->get_error_code() !== 'aipt_written_with_warning') {
 			return 0;
 		}
@@ -391,7 +361,7 @@ class AIPT_Pipeline {
 	// Post ID a writer error says exists on disk, else 0: a warning, or a link failure of
 	// an updated post (a created post is deleted again by the writer; only a failed
 	// deletion leaves it, with its ID). Such a partial write still gets the marker.
-	private static function written_id(WP_Error $error): int {
+	public static function written_id(WP_Error $error): int {
 		if (!in_array($error->get_error_code(), array('aipt_written_with_warning', 'aipt_link_failed'), true)) {
 			return 0;
 		}
@@ -400,26 +370,11 @@ class AIPT_Pipeline {
 	}
 
 	// A warning may carry several messages (finish failure plus block fallback): one line.
-	private static function warning_text(WP_Error $error): string {
+	public static function warning_text(WP_Error $error): string {
 		return implode(' ', $error->get_error_messages());
 	}
 
-	/**
-	 * @return array|WP_Error
-	 */
-	private static function finalized_result(array $job) {
-		$post_id = (int) ($job['finalized_id'] ?? 0);
-		if (!$post_id || !get_post($post_id)) {
-			return new WP_Error('aipt_finalized_missing', __('The saved translation was not found. Start the translation over.', 'ai-polylang-translator'));
-		}
-
-		return array(
-			'post_id'   => $post_id,
-			'edit_link' => get_edit_post_link($post_id, 'raw'),
-		);
-	}
-
-	private static function pair_busy_error(int $post_id, string $target): WP_Error {
+	public static function pair_busy_error(int $post_id, string $target): WP_Error {
 		$holder   = AIPT_Job::pair_lock_holder($post_id, $target);
 		$messages = array(
 			'cli'  => __('This translation is being written by a WP-CLI bulk translation right now. Try again in a few minutes.', 'ai-polylang-translator'),

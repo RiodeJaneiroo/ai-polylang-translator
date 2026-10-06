@@ -75,6 +75,9 @@ class AIPT_Settings {
 			'translate_yoast' => true,
 			// Plain-text meta keys translated like the Yoast keys (AIPT_Settings_Advanced).
 			'extra_meta_keys' => array(),
+			// Meta copied verbatim to translations (AIPT_Meta_Copy; trailing * = prefix).
+			'copy_meta_keys'      => array(),
+			'copy_term_meta_keys' => array(),
 			// WPML: switch the original to the native editor on its first AI translation.
 			'native_editor'   => true,
 			'timeout'         => 90,
@@ -82,6 +85,24 @@ class AIPT_Settings {
 			// 'all', a list of slugs, or null = never saved (see AIPT_Settings_Auto::languages()).
 			'auto_languages'  => null,
 		);
+	}
+
+	/**
+	 * Post types that can be enabled for translation: public ones (except attachments)
+	 * plus reusable blocks (wp_block), which are not public but pages embed them by reference.
+	 *
+	 * @return array<string, WP_Post_Type> Keyed by post type name.
+	 */
+	public static function selectable_post_types(): array {
+		$types = get_post_types(array('public' => true), 'objects');
+		unset($types['attachment']);
+		if (!isset($types['wp_block'])) {
+			$block = get_post_type_object('wp_block');
+			if ($block) {
+				$types['wp_block'] = $block;
+			}
+		}
+		return $types;
 	}
 
 	public static function get(): array {
@@ -175,10 +196,10 @@ class AIPT_Settings {
 
 		$out['post_types'] = array();
 		if (!empty($value['post_types']) && is_array($value['post_types'])) {
-			$public = get_post_types(array('public' => true));
+			$public = self::selectable_post_types();
 			foreach ($value['post_types'] as $pt) {
 				$pt = sanitize_key($pt);
-				if (isset($public[$pt]) && $pt !== 'attachment') {
+				if (isset($public[$pt])) {
 					$out['post_types'][] = $pt;
 				}
 			}
@@ -326,14 +347,14 @@ class AIPT_Settings {
 						<tr>
 							<th scope="row"><?php esc_html_e('Post types', 'ai-polylang-translator'); ?></th>
 							<td>
-								<?php foreach (get_post_types(array('public' => true), 'objects') as $pt) :
-									if ($pt->name === 'attachment') {
-										continue;
-									} ?>
+								<?php foreach (self::selectable_post_types() as $pt) : ?>
 									<label class="aipt-cpt">
 										<input type="checkbox" name="aipt_settings[post_types][]" value="<?php echo esc_attr($pt->name); ?>"
 											<?php checked(in_array($pt->name, $settings['post_types'], true)); ?>>
 										<?php echo esc_html($pt->labels->name); ?> <code><?php echo esc_html($pt->name); ?></code>
+										<?php if ($pt->name === 'wp_block') : ?>
+											<span class="description"><?php esc_html_e('Reusable blocks inserted into pages by reference; translate them so translated pages do not show the source language.', 'ai-polylang-translator'); ?></span>
+										<?php endif; ?>
 									</label><br>
 								<?php endforeach; ?>
 								<p class="description"><?php esc_html_e('The translation metabox will only appear on the selected post types.', 'ai-polylang-translator'); ?></p>

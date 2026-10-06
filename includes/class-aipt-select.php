@@ -1,13 +1,13 @@
 <?php
-// Source selection for `wp aipt` commands: the source posts of `translate` (parents
-// first) and the source terms of `translate-terms`, both restricted to the source
-// language through the multilingual adapter.
+// Source selection for bulk translation (`wp aipt translate` / `translate-terms`): source
+// posts (parents first) and source terms, both restricted to the source language through
+// the multilingual adapter. Transport-neutral: callers report errors themselves.
 
 if (!defined('ABSPATH')) {
 	exit;
 }
 
-class AIPT_CLI_Select {
+class AIPT_Select {
 
 	/**
 	 * @return int[] Source post IDs, parents first.
@@ -77,17 +77,17 @@ class AIPT_CLI_Select {
 	}
 
 	/**
-	 * @return WP_Term[] Source-language terms, parents first.
+	 * @return WP_Term[]|WP_Error Source-language terms, parents first; the term query's
+	 *                            error when it failed.
 	 */
-	public static function terms(string $taxonomy, string $from, string $since): array {
+	public static function terms(string $taxonomy, string $from, string $since) {
 		$terms = aipt_lang()->terms_in_language($taxonomy, $from, array(
 			'hide_empty' => false,
 			'orderby'    => 'term_id',
 			'order'      => 'ASC',
 		));
 		if (is_wp_error($terms)) {
-			WP_CLI::warning(sprintf('%s: %s', $taxonomy, $terms->get_error_message()));
-			return array();
+			return $terms;
 		}
 
 		$by_id = array();

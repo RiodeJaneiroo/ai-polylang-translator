@@ -22,9 +22,10 @@ class AIPT_Gateway {
 	/**
 	 * Translate a {id: text} map in one request; returns the same keys translated.
 	 *
+	 * @param string $extra_rule Appended to the system prompt (e.g. AIPT_Strings::PROMPT_RULE).
 	 * @return array|WP_Error
 	 */
-	public static function translate_map(array $map, string $source_name, string $target_name, string $model = '') {
+	public static function translate_map(array $map, string $source_name, string $target_name, string $model = '', string $extra_rule = '') {
 		// Owns its usage window: get_usage() after the call returns the tokens
 		// and cost of exactly this map (including the missing-keys retry).
 		self::reset_usage();
@@ -47,6 +48,9 @@ class AIPT_Gateway {
 		// Only when a value carries block tokens (AIPT_Blocks), so other prompts are unchanged.
 		if (AIPT_Blocks::has_tokens($map)) {
 			$system .= ' ' . AIPT_Blocks::PROMPT_RULE;
+		}
+		if ($extra_rule !== '') {
+			$system .= ' ' . $extra_rule;
 		}
 
 		$messages = array(
@@ -86,6 +90,39 @@ class AIPT_Gateway {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * The batch loop of term names and strings: $items ({id: text}) packed by
+	 * AIPT_Extractor::build_batches() and sent with translate_map() from language $from into
+	 * $target, with $job_meta['model']. Each batch's usage is recorded in the cost log
+	 * under one job id generated here ($job_meta: AIPT_Usage::record_job_usage()) before
+	 * its reply is looked at (tokens are billed even when the reply is rejected). Then
+	 * $on_batch(string[] $keys, array|WP_Error $result, float $cost) gets the batch: its
+	 * keys, the translated map or the gateway error, and the batch's cost; returning false
+	 * stops before the next batch.
+	 */
+	public static function translate_items(array $items, string $from, string $target, array $job_meta, string $extra_rule, callable $on_batch): void {
+		$list = array();
+		foreach ($items as $id => $text) {
+			$list[] = array('id' => (string) $id, 'text' => (string) $text);
+		}
+		$job_id      = wp_generate_uuid4();
+		$model       = (string) ($job_meta['model'] ?? '');
+		$source_name = aipt_lang()->language_name($from);
+		$target_name = aipt_lang()->language_name($target);
+		foreach (AIPT_Extractor::build_batches($list) as $keys) {
+			$map = array();
+			foreach ($keys as $key) {
+				$map[$key] = $items[$key];
+			}
+			$result = self::translate_map($map, $source_name, $target_name, $model, $extra_rule);
+			$usage  = self::get_usage();
+			AIPT_Usage::record_job_usage($job_meta, $job_id, $usage);
+			if ($on_batch($keys, $result, (float) $usage['cost']) === false) {
+				return;
+			}
+		}
 	}
 
 	/**
@@ -173,6 +210,7 @@ class AIPT_Gateway {
 		));
 
 		if (is_wp_error($response)) {
+			/* translators: %s: connection error message */
 			return new WP_Error('aipt_http', sprintf(__('Connection error with AI Gateway: %s', 'ai-polylang-translator'), $response->get_error_message()));
 		}
 
@@ -181,6 +219,7 @@ class AIPT_Gateway {
 
 		if ($code !== 200) {
 			$excerpt = mb_substr(wp_strip_all_tags($raw), 0, 300);
+			/* translators: 1: HTTP status code, 2: response body excerpt */
 			return new WP_Error('aipt_http_' . $code, sprintf(__('AI Gateway returned error %1$d: %2$s', 'ai-polylang-translator'), $code, $excerpt));
 		}
 

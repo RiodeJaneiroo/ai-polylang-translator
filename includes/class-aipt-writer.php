@@ -27,19 +27,12 @@ class AIPT_Writer {
 		$target   = (string) $job['target'];
 		$existing = (int) ($job['existing'] ?? 0);
 		// Re-check the target the user actually confirmed at prepare time. Never silently
-		// overwrite a post that the confirmation screen never showed. Jobs from before 1.6
-		// have no target_state: 'existing' was a real translation then.
-		$stored  = (string) ($job['target_state'] ?? ($existing ? 'translated' : 'none'));
+		// overwrite a post that the confirmation screen never showed.
 		$current = aipt_lang()->translation_state($source->ID, $target);
 		if ($current['state'] === 'pending') {
 			return AIPT_Record::pending_error();
 		}
-		// A confirmed update of a real translation proceeds as before (checks below),
-		// unless it became a duplicate: safe mode would keep its source-language text.
-		$changed = $stored === 'translated'
-			? $current['state'] === 'duplicate'
-			: ($current['state'] !== $stored || AIPT_Record::existing_target($current) !== $existing);
-		if ($changed) {
+		if (AIPT_Record::target_changed($job, $current)) {
 			return new WP_Error('aipt_target_changed', $existing
 				? __('The translation into this language changed after the job was prepared. Please start the translation again.', 'ai-polylang-translator')
 				: __('A translation into this language was created after the job was prepared. Please start the translation again.', 'ai-polylang-translator'));
@@ -141,7 +134,7 @@ class AIPT_Writer {
 
 		$content_chunks += AIPT_Blocks::unsent_chunks($job, $fallbacks);
 		ksort($content_chunks);
-		$content = $content_chunks ? implode('', $content_chunks) : $source->post_content;
+		$content = AIPT_Block_Refs::remap($content_chunks ? implode('', $content_chunks) : $source->post_content, $target);
 
 		if ($target_post) {
 			$title   = AIPT_Safe_Merge::preserved_value(array('post', 'title'), $target_post->post_title, $title, $preserve_map);
@@ -196,6 +189,10 @@ class AIPT_Writer {
 			return $new_id;
 		}
 		$new_id = (int) $new_id;
+		// Tagged before anything else can fail: a crash in the writer leaves a traceable post.
+		foreach ($job['tag_meta'] ?? array() as $meta_key => $meta_value) {
+			update_post_meta($new_id, $meta_key, $meta_value);
+		}
 
 		$begun = aipt_lang()->begin_post($new_id, $source->ID, $target);
 		if (is_wp_error($begun)) {
@@ -240,6 +237,7 @@ class AIPT_Writer {
 				update_post_meta($new_id, $meta_key, wp_slash($meta_value));
 			}
 		}
+		AIPT_Meta_Copy::post($source->ID, $new_id, array_keys($meta));
 		AIPT_Woo::write($new_id, $job, $results, $safe, $preserve_map);
 
 		if (aipt_acf_active()) {

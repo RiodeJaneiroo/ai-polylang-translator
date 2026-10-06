@@ -19,6 +19,12 @@ class AIPT_Record {
 		);
 	}
 
+	// The current user may create a post of the source's type (a new translation).
+	public static function can_create_translation(WP_Post $post): bool {
+		$post_type = get_post_type_object($post->post_type);
+		return $post_type && current_user_can($post_type->cap->create_posts);
+	}
+
 	/**
 	 * Source post and existing translation. Status '' means go on, with target_id = the
 	 * existing translation (0 = none) and mode = effective_mode() of the requested $mode.
@@ -58,11 +64,16 @@ class AIPT_Record {
 	}
 
 	/**
-	 * Status of a translate_post() error that skips the record instead of failing it, else
-	 * null: a busy pair, or backend work in progress on the target.
+	 * Status of a pipeline error that skips the record instead of failing it, else null:
+	 * a busy pair, backend work in progress on the target, or a translation found by
+	 * skip_existing (translate_post() reports that one as skipped_existing itself).
 	 */
 	public static function skip_status(WP_Error $error): ?string {
-		$skipped = array('aipt_pair_locked' => 'skipped_locked', 'aipt_target_pending' => 'skipped_pending');
+		$skipped = array(
+			'aipt_pair_locked'        => 'skipped_locked',
+			'aipt_target_pending'     => 'skipped_pending',
+			'aipt_translation_exists' => 'skipped_existing',
+		);
 		return $skipped[$error->get_error_code()] ?? null;
 	}
 
@@ -73,6 +84,23 @@ class AIPT_Record {
 	 */
 	public static function existing_target(array $state): int {
 		return in_array($state['state'] ?? '', array('translated', 'duplicate'), true) ? (int) $state['id'] : 0;
+	}
+
+	/**
+	 * Whether the target changed since the job was prepared (the writer's rule): a
+	 * confirmed update of a real translation only when it became a duplicate (safe mode
+	 * would keep its source-language text), any other job when the state or the target
+	 * post differs. Jobs from before 1.6 have no target_state: 'existing' was a real
+	 * translation then. The caller handles 'pending' first.
+	 *
+	 * @param array $state AIPT_Lang::translation_state().
+	 */
+	public static function target_changed(array $job, array $state): bool {
+		$existing = (int) ($job['existing'] ?? 0);
+		$stored   = (string) ($job['target_state'] ?? ($existing ? 'translated' : 'none'));
+		return $stored === 'translated'
+			? $state['state'] === 'duplicate'
+			: ($state['state'] !== $stored || self::existing_target($state) !== $existing);
 	}
 
 	// translation_state() 'pending': never written, treated like a locked pair.

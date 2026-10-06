@@ -1,6 +1,7 @@
 <?php
-// WP-CLI commands: `wp aipt translate` (bulk post translation through AIPT_Pipeline)
-// and `wp aipt translate-terms` (taxonomy names/descriptions through AIPT_Terms).
+// WP-CLI commands: `wp aipt translate` (bulk post translation through AIPT_Pipeline),
+// `wp aipt translate-terms` (taxonomy names/descriptions through AIPT_Terms) and
+// `wp aipt translate-strings` (WPML String Translation strings through AIPT_Strings).
 // Output is English only; the TSV log gets one line per record plus a summary.
 
 if (!defined('ABSPATH')) {
@@ -8,14 +9,11 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * AI translation of posts and taxonomy terms into the other site languages.
+ * AI translation of posts, taxonomy terms and WPML strings into the other site languages.
  */
 class AIPT_CLI {
 
-	private $log     = null;
-	// Dry run: target language => source IDs a real run would create, so their
-	// children are not reported as skipped_parent_missing.
-	private $planned = array();
+	private $log = null;
 
 	/**
 	 * Translate posts into the other site languages.
@@ -110,12 +108,7 @@ class AIPT_CLI {
 			AIPT_CLI_Args::require_publish_caps($types);
 		}
 
-		$opts = array(
-			'mode'          => $mode,
-			'skip_existing' => $mode === '',
-			'post_status'   => $publish ? 'publish' : 'draft',
-			'keep_date'     => (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'keep-date', false),
-		);
+		$opts     = AIPT_Runner::opts($mode, $publish, (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'keep-date', false));
 		$statuses = array_map('sanitize_key', AIPT_CLI_Args::csv($assoc_args['post_status'] ?? 'publish'));
 		$after    = AIPT_CLI_Args::date($assoc_args, 'after');
 		$shard    = AIPT_CLI_Args::shard($assoc_args);
@@ -124,8 +117,11 @@ class AIPT_CLI {
 
 		AIPT_CLI_Args::require_api_key($dry_run);
 		$this->log = new AIPT_CLI_Log($assoc_args, 'translate', $dry_run);
+		// Dry run: what a real run would create, so children are not reported as
+		// skipped_parent_missing.
+		$context = new AIPT_Runner_Context();
 
-		$selected = AIPT_CLI_Select::posts($types, $statuses, $from, $after, $ids, $shard);
+		$selected = AIPT_Select::posts($types, $statuses, $from, $after, $ids, $shard);
 		if ($ids && count($selected) < count($ids)) {
 			WP_CLI::warning(sprintf(
 				'%d of the given IDs are ignored: not found, not in %s, filtered by status/date/shard, or post type not enabled.',
@@ -148,7 +144,7 @@ class AIPT_CLI {
 				$this->stop_if_disabled();
 				$position++;
 				$outcome = $dry_run
-					? $this->dry_run_post($post_id, $target, $from, $opts, $price)
+					? AIPT_Runner::estimate($post_id, $target, $from, $opts, $price, $context)
 					: $this->process_post($post_id, $target, $from, $opts);
 				if ($outcome['api']) {
 					$processed++;
@@ -220,12 +216,109 @@ class AIPT_CLI {
 		}
 
 		foreach ($taxonomies as $taxonomy) {
-			$terms = AIPT_CLI_Select::terms($taxonomy, $from, $since);
+			$terms = AIPT_Select::terms($taxonomy, $from, $since);
+			if (is_wp_error($terms)) {
+				WP_CLI::warning(sprintf('%s: %s', $taxonomy, $terms->get_error_message()));
+				$terms = array();
+			}
 			WP_CLI::log(sprintf('%s: %d source terms in %s.', $taxonomy, count($terms), $from));
 			foreach ($targets as $target) {
 				$this->stop_if_disabled();
 				AIPT_Terms::translate($taxonomy, $terms, $from, $target, $dry_run ? $price : null, function (array $row) use ($taxonomy, $target): void {
 					$this->record_term($taxonomy, $row['term'], $target, $row);
+				});
+			}
+			$this->free_memory();
+		}
+
+		$this->log->finish();
+	}
+
+	/**
+	 * Translate WPML String Translation strings into the other site languages.
+	 *
+	 * Source strings are the strings of each domain (WPML "context") whose language is
+	 * --from. Values are translated in batches; placeholders (%%name%%, %s, %d, {{…}})
+	 * and HTML are kept, and a translation whose placeholders changed is not saved
+	 * (error). Empty strings and strings with only placeholders or markup are skipped.
+	 * Strings with a finished translation are skipped unless --mode=update, so the
+	 * command can be re-run safely. WPML only (Polylang is not supported).
+	 *
+	 * Requires --user=<login> (WP-CLI global flag) with manage_options. Exits with status
+	 * 1 when any string ended in error, or when AI Translator is disabled in its settings.
+	 * Turning it off mid-run takes effect before the next domain × language.
+	 *
+	 * ## OPTIONS
+	 *
+	 * --domains=<domains>
+	 * : Comma-separated string domains (WPML String Translation contexts), e.g. admin_texts_wpseo_titles.
+	 *
+	 * --to=<langs>
+	 * : Comma-separated target language slugs.
+	 *
+	 * [--from=<lang>]
+	 * : Source language slug. Defaults to the site's default language.
+	 *
+	 * [--mode=<mode>]
+	 * : Re-translate strings that already have a finished translation instead of skipping them.
+	 * ---
+	 * options:
+	 *   - update
+	 * ---
+	 *
+	 * [--dry-run]
+	 * : No API calls and no writes. Lists each string with its text size and estimated cost.
+	 *
+	 * [--log=<path>]
+	 * : Append one TSV line per string (time, string_id, target_lang, target_id, status, cost, message) and a summary. Required unless --dry-run. Must be outside ABSPATH and WP_CONTENT_DIR (and the web root when WordPress lives in a subdirectory).
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     # Estimate the cost of translating Yoast SEO title templates and term SEO fields.
+	 *     $ wp aipt translate-strings --domains=admin_texts_wpseo_titles,yoast-seo-term-meta --to=ru --dry-run --user=admin
+	 *
+	 *     # Translate them.
+	 *     $ wp aipt translate-strings --domains=admin_texts_wpseo_titles,yoast-seo-term-meta --to=ru --log=/var/log/aipt/strings.tsv --user=admin
+	 *
+	 * @subcommand translate-strings
+	 */
+	public function translate_strings($args, $assoc_args) {
+		AIPT_CLI_Args::require_enabled();
+		$dry_run = (bool) \WP_CLI\Utils\get_flag_value($assoc_args, 'dry-run', false);
+		list($from, $targets) = AIPT_CLI_Args::languages($assoc_args);
+		AIPT_CLI_Args::require_user();
+		$domains = AIPT_CLI_Args::domains($assoc_args);
+		$update  = AIPT_CLI_Args::string_mode($assoc_args);
+		// Unsupported backend (Polylang) or no WPML String Translation: refuse before logging.
+		$probe = aipt_lang()->strings($domains[0], $from, $targets[0]);
+		if (is_wp_error($probe)) {
+			WP_CLI::error($probe->get_error_message());
+		}
+
+		$price = AIPT_Settings::price_per_char();
+		AIPT_CLI_Args::require_api_key($dry_run);
+		$this->log = new AIPT_CLI_Log($assoc_args, 'translate-strings', $dry_run);
+		if (function_exists('set_time_limit')) {
+			set_time_limit(0);
+		}
+
+		foreach ($domains as $domain) {
+			foreach ($targets as $target) {
+				$this->stop_if_disabled();
+				$strings = aipt_lang()->strings($domain, $from, $target);
+				if (is_wp_error($strings)) {
+					$this->log->record('domain', 0, $target, AIPT_Record::outcome('error', 0, 0.0, $domain . ': ' . $strings->get_error_message()));
+					continue;
+				}
+				if (!$strings) {
+					WP_CLI::warning(sprintf('%s: no strings in %s.', $domain, $from));
+					continue;
+				}
+				WP_CLI::log(sprintf('%s -> %s: %d source strings in %s.', $domain, $target, count($strings), $from));
+				AIPT_Strings::translate($domain, $strings, $from, $target, $update, $dry_run ? $price : null, function (array $row) use ($domain, $target): void {
+					$label = $domain . ' "' . $row['string']['name'] . '"';
+					$row['message'] = trim($label . ' ' . $row['message']);
+					$this->log->record('string', (int) $row['string']['id'], $target, $row);
 				});
 			}
 			$this->free_memory();
@@ -241,13 +334,13 @@ class AIPT_CLI {
 			set_time_limit(0);
 		}
 		try {
-			$check = $this->precheck($post_id, $target, $from, $opts);
+			$check = AIPT_Runner::precheck($post_id, $target, $from, $opts);
 			if ($check['status'] !== '') {
 				return $check;
 			}
 
 			$this->free_memory();
-			$status = $this->new_post_status($post_id, $opts);
+			$status = AIPT_Runner::new_post_status($post_id, $opts);
 			// Takes the pair lock and re-checks the existing translation under it.
 			$result = AIPT_Pipeline::translate_post($post_id, $target, array(
 				'mode'          => $opts['mode'] !== '' ? $opts['mode'] : 'overwrite',
@@ -284,99 +377,10 @@ class AIPT_CLI {
 		}
 	}
 
-	// Status for a new translation. --publish never exposes a source that is not public:
-	// private stays private, scheduled stays scheduled only with its copied date, and
-	// anything else (draft, pending, …) becomes a draft.
-	private function new_post_status(int $post_id, array $opts): string {
-		if ($opts['post_status'] !== 'publish') {
-			return 'draft';
-		}
-		switch (get_post_status($post_id)) {
-			case 'publish':
-				return 'publish';
-			case 'private':
-				return 'private';
-			case 'future':
-				return $opts['keep_date'] ? 'future' : 'draft';
-			default:
-				return 'draft';
-		}
-	}
-
-	// Status '' means the record should be translated; target_id holds the existing
-	// translation and mode the mode the write will use (a duplicate is always overwritten).
-	private function precheck(int $post_id, string $target, string $from, array $opts): array {
-		$check = AIPT_Record::check_source($post_id, $target, $from, $opts['skip_existing'], $opts['mode']);
-		if ($check['status'] !== '') {
-			return $check;
-		}
-		$existing = (int) $check['target_id'];
-		$mode     = $check['mode'];
-		$post     = get_post($post_id);
-
-		// A dry run counts the parents it would create as translated.
-		$parent = $existing ? 0 : AIPT_Record::missing_parent($post, $target);
-		if ($parent && !isset($this->planned[$target][$parent])) {
-			return AIPT_Record::outcome('skipped_parent_missing', 0, 0.0, sprintf('parent #%d has no %s translation', $parent, $target));
-		}
-
-		$terms = AIPT_Record::translated_terms($post_id, $post->post_type);
-		// Safe mode keeps the terms of a translation that already has some.
-		if ($existing && $mode === 'safe') {
-			$terms = array_diff_key($terms, AIPT_Record::translated_terms($existing, $post->post_type));
-		}
-		$missing = AIPT_Record::missing_terms($terms, $target);
-		if ($missing) {
-			return AIPT_Record::outcome('skipped_missing_terms', $existing, 0.0, 'untranslated terms: ' . AIPT_Record::describe_terms($missing));
-		}
-		$outcome         = AIPT_Record::outcome('', $existing);
-		$outcome['mode'] = $mode;
-		return $outcome;
-	}
-
-	private function dry_run_post(int $post_id, string $target, string $from, array $opts, float $price): array {
-		try {
-			$check = $this->precheck($post_id, $target, $from, $opts);
-			if ($check['status'] !== '') {
-				return $check;
-			}
-			$mode     = $check['mode'];
-			$existing = (int) $check['target_id'];
-			$safe     = $existing && $mode === 'safe';
-			$extract  = AIPT_Extractor::extract($post_id, $existing, $safe, $target);
-			if (!$extract['items'] && !$safe) {
-				return AIPT_Record::outcome('error', 0, 0.0, 'no text to translate');
-			}
-
-			$chars = 0;
-			foreach ($extract['items'] as $item) {
-				$chars += mb_strlen($item['text'], 'UTF-8');
-			}
-			if (!$existing) {
-				$this->planned[$target][$post_id] = true;
-			}
-			$outcome = AIPT_Record::outcome(
-				$existing ? 'would_update' : 'would_create',
-				$existing,
-				$price * $chars,
-				sprintf('%d chars (%s)', $chars, $existing ? $mode . ' mode' : 'new, status ' . $this->new_post_status($post_id, $opts)),
-				$chars > 0
-			);
-			$outcome['chars'] = $chars;
-			$holder           = AIPT_Job::pair_lock_holder($post_id, $target);
-			if ($holder !== '') {
-				$outcome['message'] .= ', pair currently locked by ' . $holder;
-			}
-			return $outcome;
-		} catch (Throwable $e) {
-			return AIPT_Record::outcome('error', 0, 0.0, get_class($e) . ': ' . $e->getMessage());
-		}
-	}
-
 	// ---- Terms ----------------------------------------------------------------
 
 	private function record_term(string $taxonomy, WP_Term $term, string $target, array $outcome): void {
-		$label = $taxonomy . ' "' . html_entity_decode($term->name, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '"';
+		$label = $taxonomy . ' "' . AIPT_Slug::decode($term->name) . '"';
 		$outcome['message'] = trim($label . ' ' . $outcome['message']);
 		$this->log->record('term', (int) $term->term_id, $target, $outcome);
 	}

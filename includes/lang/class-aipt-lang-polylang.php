@@ -251,6 +251,11 @@ class AIPT_Lang_Polylang implements AIPT_Lang {
 		return array('_pll_');
 	}
 
+	// Polylang keeps no parsed block config: AIPT_Block_Attrs_Config reads wpml-config.xml.
+	public function block_text_attributes(): array {
+		return array();
+	}
+
 	// Polylang stores string translations in its own language terms (PLL_MO), not as
 	// addressable strings with IDs: not implemented.
 	public function supports_strings(): bool {

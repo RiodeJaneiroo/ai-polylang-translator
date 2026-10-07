@@ -87,7 +87,8 @@ class AIPT_Writer {
 		$meta           = (array) ($job['meta'] ?? array());
 		$acf_chunks     = array();
 		$fallbacks      = array();
-
+		// Translated block attribute texts rebuilt into the delimiters restore() puts back.
+		$job['blocks']  = AIPT_Block_Attrs::apply($job, $results, $kses);
 		foreach ($job['items'] as $id => $item) {
 			if (!array_key_exists($id, $results)) {
 				return new WP_Error('aipt_incomplete', __('Translation is incomplete — some text parts are missing.', 'ai-polylang-translator'));
@@ -414,14 +415,13 @@ class AIPT_Writer {
 		}
 	}
 
-
 	/**
 	 * Run a single translated string through wp_kses_post before it lands in the tree/meta,
 	 * mirroring the filtering wp_update_post applies to post_content for users without
 	 * unfiltered_html. Applied only to model output at substitution time, never to values
 	 * copied verbatim from the source.
 	 */
-	private static function sanitize_translated($value) {
+	public static function sanitize_translated($value) {
 		if (is_array($value)) {
 			return array_map(array(__CLASS__, 'sanitize_translated'), $value);
 		}

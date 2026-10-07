@@ -66,11 +66,15 @@ Products translate their title, description, short description, Yoast fields and
 
 ## Gutenberg and Kadence blocks
 
-Block delimiter comments (`<!-- wp:… {json} -->`, `<!-- /wp:… -->`) are replaced with `[[AIPT-B<n>]]` tokens before content is sent to the model, so block JSON is kept out of the model's input and restored from the source afterwards. If the model drops or changes a token in a part of the content, or a part's block markup cannot be masked, that part keeps its original text, a new translation is left as a draft, and the translation is reported with a warning. Text inside block attributes (e.g. Kadence button text, image alt/caption) is not translated.
+Block delimiter comments (`<!-- wp:… {json} -->`, `<!-- /wp:… -->`) are replaced with `[[AIPT-B<n>]]` tokens before content is sent to the model, so block JSON is kept out of the model's input and restored from the source afterwards. If the model drops or changes a token in a part of the content, or a part's block markup cannot be masked, that part keeps its original text, a new translation is left as a draft, and the translation is reported with a warning.
+
+Text kept in block attributes (the JSON of the delimiter, e.g. Kadence button labels or navigation link labels) is translated too: each text value is sent as a separate short item, and the translation is written back into that delimiter, with the rest of its JSON unchanged. Which attributes hold text comes from generic sources, never from a built-in list of blocks: the `<gutenberg-block>` definitions of the `wpml-config.xml` files that block plugins and themes ship (on WPML, the list WPML itself parsed from them; on Polylang, the files of the active plugins, mu-plugins, the active theme and its parent and `wp-content/polylang/wpml-config.xml`, re-read when one of them changes), plus the block attributes WordPress marks as content (`"role": "content"`, type string, not stored in the block HTML) whose names do not look like settings (URLs, link targets, types, slugs, icons, dates, sizes, IDs …); for those keys a lowercase one-word value such as `_blank` or `image` is never sent either. Keys typed as links, media or IDs, and values that are URLs, paths, anchors, e-mail addresses or numbers, are never sent. A site can add or remove keys with the `aipt_block_text_attributes` filter (see Hooks). Attribute texts are translated only together with the content (in safe mode, a kept content keeps its attributes too).
 
 ## Hooks
 
 `aipt_translation_written` (`$post_id, $source_id, $lang, $created`) fires after every translation write, once meta, attributes and terms are saved, right after `clean_post_cache()`.
+
+`aipt_block_text_attributes` (`$config, $backend`) filters which block attributes are translated: `$config` is `blockName => [attribute key => key config]` in the shape of the `key` part of WPML's `<gutenberg-block>` config (`[]` = text; `type` = not text, e.g. `link`; `search-method` = `regex` for a regex key, `*` is a wildcard; `children` for nested arrays; `encoding` = `json` for URL-encoded JSON values), `$backend` is `polylang` or `wpml`. Example: `$config['my/cta']['buttonLabel'] = array();`.
 
 ## Testing
 

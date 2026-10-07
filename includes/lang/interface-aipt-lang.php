@@ -174,6 +174,14 @@ interface AIPT_Lang {
 	public function save_string_translation(int $id, string $lang, string $text);
 
 	/**
+	 * Text attributes of blocks the backend already parsed from wpml-config.xml files:
+	 * blockName => the `key` part of a <gutenberg-block> config (AIPT_Block_Attrs_Config).
+	 * WPML: its 'wpml-gutenberg-config' option; Polylang: [] (AIPT_Block_Attrs_Config then
+	 * reads the files itself).
+	 */
+	public function block_text_attributes(): array;
+
+	/**
 	 * Polylang: pll_copy_post_metas; WPML: nothing (wpml-config.xml).
 	 */
 	public function register_hooks(): void;

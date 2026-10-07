@@ -61,6 +61,7 @@ class AIPT_Extractor {
 				// A chunk that could not be masked is never sent; the writer keeps its source.
 				if (!$masked['fallback']) {
 					$add(array('post', 'content', $i), $masked['text']);
+					AIPT_Block_Attrs::extract($masked, $i, $add);
 				}
 			}
 		}

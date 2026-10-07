@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.1
+
+### Fixed
+
+- Text stored in block attributes is translated (e.g. Kadence button labels, navigation link labels): it used to stay in the source language, because block delimiters are restored from the source. Each text value is a separate item (path `['blockattr', chunk, delimiter, ...keys]`) and is written back into its delimiter with the rest of the block JSON unchanged; a value that cannot be written back exactly keeps its source text.
+- Which attributes hold text comes from generic sources only: the `<gutenberg-block>` definitions of `wpml-config.xml` files (on WPML the list WPML parsed, new adapter method `block_text_attributes()`, with the files read when that list is empty; on Polylang the files of the active plugins, mu-plugins and themes, cached in a transient until one of them changes) and block attributes WordPress marks as content (`"role": "content"`, string, without a `source`, and a name that does not look like a setting: a word such as URL, link, target, type, slug, icon, date, size, ID, unless the name ends in text/label/title/…, so `linkTarget` is skipped and `linkText` is kept; their lowercase one-word values such as `_blank` or `image` are skipped).
+- New filter `aipt_block_text_attributes` (`$config, $backend`) to add or remove attribute keys.
+
 ## 1.7.0
 
 ### Added

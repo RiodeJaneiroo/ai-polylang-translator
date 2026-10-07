@@ -1,6 +1,7 @@
 <?php
 // String Translation side of AIPT_Lang_WPML (strings(), string_domains(),
-// save_string_translation()) and the meta keys WPML owns. References are to WPML String
+// save_string_translation()), the meta keys WPML owns, and the block text attributes WPML
+// parsed from wpml-config.xml (block_text_attributes()). References are to WPML String
 // Translation 5.1.0 (wpml-string-translation). Strings are read with read-only queries on
 // icl_strings / icl_string_translations and written only through icl_add_string_translation().
 
@@ -13,6 +14,20 @@ trait AIPT_Lang_WPML_Strings {
 	// _icl_lang_duplicate_of (duplicates), _wpml_media_* / _wpml_word_count and the like.
 	public function service_meta_prefixes(): array {
 		return array('_icl_', '_wpml_');
+	}
+
+	// WPML_Gutenberg_Config_Option::OPTION (sitepress-multilingual-cms/addons/wpml-page-builders/
+	// classes/Integrations/Gutenberg/class-wpml-gutenberg-config-option.php: update_from_config()
+	// stores blockName => ['key' => ..., 'xpath' => ..., 'label' => ...] from every
+	// wpml-config.xml, WPML's bundled and remote configs included).
+	public function block_text_attributes(): array {
+		$config = array();
+		foreach ((array) get_option('wpml-gutenberg-config', array()) as $name => $block) {
+			if (is_array($block) && !empty($block['key']) && is_array($block['key'])) {
+				$config[(string) $name] = $block['key'];
+			}
+		}
+		return $config;
 	}
 
 	public function supports_strings(): bool {

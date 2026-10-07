@@ -9,6 +9,8 @@ delete_option('aipt_settings');
 delete_option('aipt_usage_log');
 delete_option('aipt_usage_totals');
 delete_option('aipt_usage_lock');
+// Block text attributes parsed from wpml-config.xml files (AIPT_Block_Attrs_Config::TRANSIENT).
+delete_transient('aipt_block_attrs');
 
 // Pending auto-translation events, their markers and the users stored for scheduled posts (AIPT_Auto).
 wp_unschedule_hook('aipt_auto_translate');

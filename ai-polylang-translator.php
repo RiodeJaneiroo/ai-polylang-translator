@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translator for Polylang & WPML
  * Description: AI translation of posts, WooCommerce products, terms and ACF fields into other Polylang or WPML languages via Vercel AI Gateway.
- * Version: 1.7.0
+ * Version: 1.7.1
  * Author: Vadym Zm
  * Author URI: https://artzm.dev/
  * Text Domain: ai-polylang-translator
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
-define('AIPT_VERSION', '1.7.0');
+define('AIPT_VERSION', '1.7.1');
 define('AIPT_FILE', __FILE__);
 define('AIPT_DIR', plugin_dir_path(__FILE__));
 define('AIPT_URL', plugin_dir_url(__FILE__));
@@ -68,6 +68,8 @@ add_action('plugins_loaded', function () {
 	require_once AIPT_DIR . 'includes/class-aipt-safe-merge.php';
 	require_once AIPT_DIR . 'includes/class-aipt-gateway.php';
 	require_once AIPT_DIR . 'includes/class-aipt-blocks.php';
+	require_once AIPT_DIR . 'includes/class-aipt-block-attrs-config.php';
+	require_once AIPT_DIR . 'includes/class-aipt-block-attrs.php';
 	require_once AIPT_DIR . 'includes/class-aipt-block-refs.php';
 	require_once AIPT_DIR . 'includes/class-aipt-extractor.php';
 	require_once AIPT_DIR . 'includes/class-aipt-woo.php';

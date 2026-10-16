@@ -1,8 +1,8 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: AI Translator for Polylang & WPML 1.7.0\n"
+"Project-Id-Version: AI Translator for Polylang & WPML 1.8.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-11 00:00+0000\n"
+"POT-Creation-Date: 2026-10-16T12:30:41+00:00\n"
 "PO-Revision-Date: 2026-06-11 00:00+0000\n"
 "Last-Translator: \n"
 "Language-Team: \n"
@@ -14,6 +14,30 @@ msgstr ""
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
 "n%10<=4 && (n%100<12 || n%100>14) ? 1 : 2);\n"
 
+#. Plugin Name of the plugin
+#: ai-polylang-translator.php
+msgid "AI Translator for Polylang & WPML"
+msgstr "AI Translator for Polylang & WPML"
+
+#. Description of the plugin
+#: ai-polylang-translator.php
+msgid ""
+"AI translation of posts, WooCommerce products, terms and ACF fields into "
+"other Polylang or WPML languages via Vercel AI Gateway."
+msgstr ""
+"Переклад записів, товарів WooCommerce, термінів і полів ACF іншими мовами "
+"Polylang або WPML через Vercel AI Gateway."
+
+#. Author of the plugin
+#: ai-polylang-translator.php
+msgid "Vadym Zm"
+msgstr ""
+
+#. Author URI of the plugin
+#: ai-polylang-translator.php
+msgid "https://artzm.dev/"
+msgstr ""
+
 #: ai-polylang-translator.php:60
 msgid ""
 "AI Translator for Polylang & WPML requires the Polylang or WPML plugin to be "
@@ -22,7 +46,7 @@ msgstr ""
 "AI Translator for Polylang & WPML: для роботи плагіна потрібен активний "
 "Polylang або WPML."
 
-#: ai-polylang-translator.php:96
+#: ai-polylang-translator.php:102
 msgid ""
 "Polylang and WPML are both active; AI Translator cannot translate until one "
 "of them is deactivated."
@@ -49,6 +73,162 @@ msgstr "Не чіпати"
 #: includes/class-aipt-acf-schema.php:213
 msgid "Copied without translation"
 msgstr "Копіюється без перекладу"
+
+#: includes/class-aipt-auto-run.php:31
+msgid "The post is not published."
+msgstr "Запис не опубліковано."
+
+#: includes/class-aipt-auto-run.php:35
+msgid "The post is no longer in the default language."
+msgstr "Запис більше не мовою за замовчуванням."
+
+#: includes/class-aipt-auto-run.php:39 includes/class-aipt-auto.php:199
+msgid "Automatic translation is turned off in Settings."
+msgstr "Автоматичний переклад вимкнено в налаштуваннях."
+
+#: includes/class-aipt-auto-run.php:43 includes/class-aipt-gateway.php:164
+msgid "API key is not set. Enter it on the settings page."
+msgstr "API-ключ не задано. Вкажіть його в налаштуваннях."
+
+#. translators: %d: user ID
+#: includes/class-aipt-auto-run.php:54
+#, php-format
+msgid "User #%d cannot edit the post."
+msgstr "Користувач #%d не може редагувати запис."
+
+#. translators: %s: language code
+#: includes/class-aipt-auto-run.php:77
+#, php-format
+msgid "Not attempted after the error in %s."
+msgstr "Не виконувалося через помилку в %s."
+
+#. translators: %1$d: parent post ID, %2$s: language code
+#: includes/class-aipt-auto-run.php:149
+#, php-format
+msgid "The parent #%1$d has no %2$s translation yet."
+msgstr "У батьківського запису #%1$d ще немає перекладу мовою %2$s."
+
+#. translators: %s: list of taxonomy:term ID pairs
+#: includes/class-aipt-auto-run.php:170
+#, php-format
+msgid "Terms without a translation: %s"
+msgstr "Терміни без перекладу: %s"
+
+#: includes/class-aipt-auto-status.php:139
+msgid "The translation did not finish."
+msgstr "Переклад не було завершено."
+
+#. translators: %s: error message
+#: includes/class-aipt-auto-status.php:187
+#: includes/class-aipt-auto-status.php:268
+#, php-format
+msgid "Automatic translation failed: %s"
+msgstr "Автоматичний переклад не вдався: %s"
+
+#. translators: %s: time
+#: includes/class-aipt-auto-status.php:232
+#, php-format
+msgid ""
+"Automatic translation stopped before this language (no progress since %s)"
+msgstr "Автоматичний переклад зупинився до цієї мови (немає прогресу з %s)"
+
+#: includes/class-aipt-auto-status.php:233
+msgid "Waiting: automatic translation of the other languages is running"
+msgstr "Очікування: триває автоматичний переклад іншими мовами"
+
+#. translators: %s: time the event was due
+#: includes/class-aipt-auto-status.php:237
+#, php-format
+msgid "Automatic translation did not run (the scheduled event for %s is gone)"
+msgstr ""
+"Автоматичний переклад не запускався (запланована на %s подія зникла з черги)"
+
+#. translators: %s: time the event was due
+#: includes/class-aipt-auto-status.php:241
+#, php-format
+msgid ""
+"Automatic translation was due at %s and has not run yet — is WP-Cron "
+"running? (see README: server cron)"
+msgstr ""
+"Автоматичний переклад мав запуститися о %s, але ще не запускався — чи працює "
+"WP-Cron? (див. README: серверний cron)"
+
+#. translators: %s: time
+#: includes/class-aipt-auto-status.php:244
+#, php-format
+msgid "Automatic translation is scheduled for %s"
+msgstr "Автоматичний переклад заплановано на %s"
+
+#. translators: %d: retry number
+#: includes/class-aipt-auto-status.php:247
+#, php-format
+msgid "(retry %d)"
+msgstr "(повтор %d)"
+
+#. translators: %s: time
+#: includes/class-aipt-auto-status.php:253
+#, php-format
+msgid "Automatic translation started at %s and did not finish"
+msgstr "Автоматичний переклад розпочався о %s і не завершився"
+
+#. translators: %s: time
+#: includes/class-aipt-auto-status.php:255
+#, php-format
+msgid "Automatic translation is running since %s"
+msgstr "Автоматичний переклад виконується з %s"
+
+#: includes/class-aipt-auto-status.php:258
+msgid "A translation already existed (not updated)"
+msgstr "Переклад уже існував (не оновлено)"
+
+#. translators: %1$s: time, %2$s: warning message
+#: includes/class-aipt-auto-status.php:262
+#, php-format
+msgid "Translated automatically at %1$s, with a warning: %2$s"
+msgstr "Перекладено автоматично о %1$s, з попередженням: %2$s"
+
+#. translators: %s: time
+#: includes/class-aipt-auto-status.php:265
+#, php-format
+msgid "Translated automatically at %s"
+msgstr "Перекладено автоматично о %s"
+
+#. translators: %s: reason
+#: includes/class-aipt-auto-status.php:271
+#, php-format
+msgid "Automatic translation skipped: %s"
+msgstr "Автоматичний переклад пропущено: %s"
+
+#: includes/class-aipt-auto.php:109 includes/class-aipt-bulk-request.php:26
+#: includes/class-aipt-metabox.php:181
+msgid "AI Translator is disabled in Settings."
+msgstr "AI Перекладач вимкнено в налаштуваннях."
+
+#. translators: %s: error message
+#: includes/class-aipt-auto.php:151
+#, php-format
+msgid "could not schedule the WP-Cron event: %s"
+msgstr "не вдалося запланувати подію WP-Cron: %s"
+
+#: includes/class-aipt-auto.php:170
+msgid "Could not schedule the WP-Cron event."
+msgstr "Не вдалося запланувати подію WP-Cron."
+
+#: includes/class-aipt-auto.php:192
+msgid ""
+"Automatic translation of this post is scheduled, running or done. Reload the "
+"post to see its status."
+msgstr ""
+"Автоматичний переклад цього запису заплановано, виконується або завершено. "
+"Перезавантажте запис, щоб побачити статус."
+
+#: includes/class-aipt-auto.php:204
+msgid ""
+"Only published posts of an enabled post type in the default language are "
+"translated automatically."
+msgstr ""
+"Автоматично перекладаються лише опубліковані записи ввімкненого типу мовою "
+"за замовчуванням."
 
 #. translators: 1: translation post ID, 2: number of content parts
 #: includes/class-aipt-blocks.php:164
@@ -90,7 +270,7 @@ msgstr "Виберіть принаймні один тип записів аб�
 
 #: includes/class-aipt-bulk-ajax.php:290
 #: includes/class-aipt-bulk-request.php:125 includes/class-aipt-finalize.php:52
-#: includes/class-aipt-metabox.php:145 includes/class-aipt-metabox.php:149
+#: includes/class-aipt-metabox.php:191 includes/class-aipt-metabox.php:195
 #: includes/class-aipt-pipeline.php:96
 msgid "Translation job not found or expired. Start over."
 msgstr "Завдання перекладу не знайдено або застаріло. Почніть заново."
@@ -665,7 +845,7 @@ msgid "Errors"
 msgstr "Помилки"
 
 #: includes/class-aipt-bulk-page.php:266 includes/class-aipt-bulk-page.php:346
-#: includes/class-aipt-settings.php:481
+#: includes/class-aipt-settings.php:482
 msgid "Cost"
 msgstr "Вартість"
 
@@ -740,7 +920,7 @@ msgid "Off: strings with a finished translation are skipped."
 msgstr "Вимк.: рядки з готовим перекладом пропускаються."
 
 #: includes/class-aipt-bulk-page.php:344 includes/class-aipt-bulk-page.php:390
-#: includes/class-aipt-settings.php:478
+#: includes/class-aipt-settings.php:479
 msgid "Language"
 msgstr "Мова"
 
@@ -776,15 +956,11 @@ msgstr "Повідомлення"
 msgid "The page has expired. Reload it and start again."
 msgstr "Сторінка застаріла. Перезавантажте її та запустіть знову."
 
-#: includes/class-aipt-bulk-request.php:23 includes/class-aipt-metabox.php:131
+#: includes/class-aipt-bulk-request.php:23 includes/class-aipt-metabox.php:177
 #: includes/class-aipt-pipeline.php:208 includes/class-aipt-runner.php:220
 #: includes/class-aipt-settings.php:253
 msgid "Insufficient permissions."
 msgstr "Недостатньо прав."
-
-#: includes/class-aipt-bulk-request.php:26 includes/class-aipt-metabox.php:135
-msgid "AI Translator is disabled in Settings."
-msgstr "AI Перекладач вимкнено в налаштуваннях."
 
 #: includes/class-aipt-bulk-request.php:29
 #: includes/class-aipt-job-builder.php:37
@@ -865,27 +1041,23 @@ msgstr "Не вдалося перекласти %d елементів блок�
 msgid "The model returned invalid JSON."
 msgstr "Модель повернула невалідний JSON."
 
-#: includes/class-aipt-gateway.php:164
-msgid "API key is not set. Enter it on the settings page."
-msgstr "API-ключ не задано. Вкажіть його в налаштуваннях."
-
 #. translators: %s: connection error message
-#: includes/class-aipt-gateway.php:214
+#: includes/class-aipt-gateway.php:221
 #, php-format
 msgid "Connection error with AI Gateway: %s"
 msgstr "Помилка з'єднання з AI Gateway: %s"
 
 #. translators: 1: HTTP status code, 2: response body excerpt
-#: includes/class-aipt-gateway.php:223
+#: includes/class-aipt-gateway.php:230
 #, php-format
 msgid "AI Gateway returned error %1$d: %2$s"
 msgstr "AI Gateway повернув помилку %1$d: %2$s"
 
-#: includes/class-aipt-gateway.php:230
+#: includes/class-aipt-gateway.php:237
 msgid "AI Gateway returned a malformed response."
 msgstr "AI Gateway повернув некоректну відповідь."
 
-#: includes/class-aipt-gateway.php:243
+#: includes/class-aipt-gateway.php:250
 msgid ""
 "The model response was cut off by the token limit — try another model or "
 "reduce the amount of text."
@@ -893,16 +1065,16 @@ msgstr ""
 "Відповідь моделі обрізано через ліміт токенів — спробуйте іншу модель або "
 "зменшіть обсяг тексту."
 
-#: includes/class-aipt-gateway.php:246
+#: includes/class-aipt-gateway.php:253
 msgid "The model rejected the response because of a safety filter."
 msgstr "Модель відхилила відповідь через фільтр безпеки."
 
-#: includes/class-aipt-gateway.php:252
+#: includes/class-aipt-gateway.php:259
 msgid "The model finished the request without a text response."
 msgstr "Модель завершила запит без текстової відповіді."
 
 #. translators: %s: Vercel AI Gateway generation ID
-#: includes/class-aipt-gateway.php:256
+#: includes/class-aipt-gateway.php:263
 #, php-format
 msgid "Request ID: %s."
 msgstr "ID запиту: %s."
@@ -929,63 +1101,63 @@ msgstr "Недостатньо прав для створення перекла
 msgid "The post has no text to translate."
 msgstr "У записі немає тексту для перекладу."
 
-#: includes/class-aipt-metabox.php:24
+#: includes/class-aipt-metabox.php:25
 msgid "AI Translation"
 msgstr "AI-переклад"
 
-#: includes/class-aipt-metabox.php:46
+#: includes/class-aipt-metabox.php:47
 msgid ""
 "A translation already exists. Its current content will be replaced. Continue?"
 msgstr ""
 "Переклад уже існує. Поточний вміст перекладу буде замінено. Продовжити?"
 
-#: includes/class-aipt-metabox.php:47
+#: includes/class-aipt-metabox.php:48
 msgid "Preparing…"
 msgstr "Підготовка…"
 
 #. translators: %1$d: current block number, %2$d: total number of blocks
-#: includes/class-aipt-metabox.php:49
+#: includes/class-aipt-metabox.php:50
 #, php-format
 msgid "Translating… block %1$d of %2$d"
 msgstr "Переклад… блок %1$d з %2$d"
 
-#: includes/class-aipt-metabox.php:50
+#: includes/class-aipt-metabox.php:51
 msgid "Saving translation…"
 msgstr "Збереження перекладу…"
 
-#: includes/class-aipt-metabox.php:51
+#: includes/class-aipt-metabox.php:52
 msgid "Done:"
 msgstr "Готово:"
 
-#: includes/class-aipt-metabox.php:52 includes/class-aipt-metabox.php:100
+#: includes/class-aipt-metabox.php:53 includes/class-aipt-metabox.php:104
 msgid "Open translation"
 msgstr "Відкрити переклад"
 
-#: includes/class-aipt-metabox.php:53
+#: includes/class-aipt-metabox.php:54
 msgid "Retry"
 msgstr "Повторити"
 
-#: includes/class-aipt-metabox.php:54
+#: includes/class-aipt-metabox.php:55
 msgid "Error:"
 msgstr "Помилка:"
 
-#: includes/class-aipt-metabox.php:61
+#: includes/class-aipt-metabox.php:62
 msgid "Save the post first."
 msgstr "Спершу збережіть запис."
 
 #. translators: %s: settings page URL
-#: includes/class-aipt-metabox.php:68
+#: includes/class-aipt-metabox.php:69
 #, php-format
 msgid "Enter an API key on the <a href=\"%s\">settings page</a>."
 msgstr "Вкажіть API-ключ на <a href=\"%s\">сторінці налаштувань</a>."
 
 #. translators: %s: multilingual plugin name, e.g. Polylang
-#: includes/class-aipt-metabox.php:78
+#: includes/class-aipt-metabox.php:79
 #, php-format
 msgid "Set the post language (%s) and save the post first."
 msgstr "Спершу задайте мову запису (%s) і збережіть його."
 
-#: includes/class-aipt-metabox.php:106
+#: includes/class-aipt-metabox.php:110
 msgid ""
 "Filled fields are kept. New flexible content sections are added and "
 "translated, existing sections are kept; repeater blocks with a different "
@@ -995,19 +1167,45 @@ msgstr ""
 "перекладаються, наявні секції зберігаються; блоки repeater з іншою кількістю "
 "рядків замінюються повністю."
 
-#: includes/class-aipt-metabox.php:108
+#: includes/class-aipt-metabox.php:112
 msgid "Safe translation"
 msgstr "Безпечний переклад"
 
-#: includes/class-aipt-metabox.php:111
+#: includes/class-aipt-metabox.php:115
 msgid "Update translation"
 msgstr "Оновити переклад"
 
 #. translators: %s: language name
-#: includes/class-aipt-metabox.php:115
+#: includes/class-aipt-metabox.php:119
 #, php-format
 msgid "Translate into %s"
 msgstr "Перекласти на %s"
+
+#: includes/class-aipt-metabox.php:144
+msgid "Retry automatic translation"
+msgstr "Повторити автоматичний переклад"
+
+#: includes/class-aipt-metabox.php:146
+msgid "Translate missing languages automatically"
+msgstr "Автоматично перекласти відсутні мови"
+
+#. translators: %s: comma-separated language codes
+#: includes/class-aipt-metabox.php:149
+#, php-format
+msgid ""
+"No automatic translation status (translated before 1.8); languages without a "
+"translation: %s"
+msgstr ""
+"Статусу автоматичного перекладу немає (перекладено до 1.8); мови без "
+"перекладу: %s"
+
+#: includes/class-aipt-metabox.php:235
+msgid ""
+"Automatic translation is scheduled; reload the post in a moment to see the "
+"result."
+msgstr ""
+"Автоматичний переклад заплановано; перезавантажте запис за хвилину, щоб "
+"побачити результат."
 
 #: includes/class-aipt-pipeline.php:77
 msgid "Unknown translation block."
@@ -1099,11 +1297,13 @@ msgstr "Додаткові мета-ключі для перекладу"
 #, php-format
 msgid ""
 "Custom fields with plain text to translate, one meta key per line (e.g. %s). "
-"Only text values are translated; Yoast SEO fields are handled separately."
+"Only text values are translated; Yoast SEO fields are handled automatically "
+"(see Yoast SEO above) and cannot be listed here."
 msgstr ""
 "Користувацькі поля зі звичайним текстом для перекладу, по одному мета-ключу "
 "в рядку (наприклад, %s). Перекладаються лише текстові значення; поля Yoast "
-"SEO обробляються окремо."
+"SEO обробляються автоматично (див. Yoast SEO вище) і не можуть бути вказані "
+"тут."
 
 #. translators: %s: example meta key pattern
 #: includes/class-aipt-settings-advanced.php:108
@@ -1309,8 +1509,8 @@ msgstr ""
 "rel=\"noopener\">Vercel AI Gateway</a>. Успішна перевірка збереже введений "
 "ключ."
 
-#: includes/class-aipt-settings.php:327 includes/class-aipt-settings.php:415
-#: includes/class-aipt-settings.php:479
+#: includes/class-aipt-settings.php:327 includes/class-aipt-settings.php:416
+#: includes/class-aipt-settings.php:480
 msgid "Model"
 msgstr "Модель"
 
@@ -1350,18 +1550,34 @@ msgid "Yoast SEO"
 msgstr "Yoast SEO"
 
 #: includes/class-aipt-settings.php:377
-msgid "Translate SEO title, description and focus keyphrase"
-msgstr "Перекладати SEO-заголовок, опис і фокусну фразу"
+msgid "Translate Yoast SEO fields"
+msgstr "Перекладати поля Yoast SEO"
 
-#: includes/class-aipt-settings.php:384
+#: includes/class-aipt-settings.php:379
+msgid ""
+"Translated: SEO title, meta description, breadcrumb title, focus keyphrase, "
+"Facebook and X (Twitter) titles and descriptions. Copied to the translation "
+"as they are: robots settings (noindex, nofollow, advanced), Facebook and X "
+"images, and the primary category or term, replaced with its translation. "
+"Canonical URL and redirect are never copied. When this box is unticked, "
+"Yoast SEO fields are not touched."
+msgstr ""
+"Перекладаються: SEO-заголовок, мета-опис, заголовок у хлібних крихтах, "
+"фокусна фраза, заголовки й описи для Facebook і X (Twitter). Копіюються в "
+"переклад як є: налаштування robots (noindex, nofollow, розширені), "
+"зображення для Facebook і X, а також основна рубрика або термін (замінюється "
+"своїм перекладом). Канонічний URL і переадресація ніколи не копіюються. Якщо "
+"прапорець знято, поля Yoast SEO не змінюються."
+
+#: includes/class-aipt-settings.php:385
 msgid "Request timeout (seconds)"
 msgstr "Тайм-аут запиту (секунди)"
 
-#: includes/class-aipt-settings.php:389
+#: includes/class-aipt-settings.php:390
 msgid "ACF fields to translate"
 msgstr "Поля ACF для перекладу"
 
-#: includes/class-aipt-settings.php:391
+#: includes/class-aipt-settings.php:392
 msgid ""
 "Choose whether each text field is translated, copied as-is, or left "
 "untouched. Other field types (images, numbers, relationships, etc.) are "
@@ -1370,23 +1586,23 @@ msgstr ""
 "Виберіть для кожного текстового поля: перекладати, копіювати як є або не "
 "чіпати. Інші типи полів (зображення, числа, зв'язки тощо) копіюються як є."
 
-#: includes/class-aipt-settings.php:399
+#: includes/class-aipt-settings.php:400
 msgid "Save settings"
 msgstr "Зберегти налаштування"
 
-#: includes/class-aipt-settings.php:411
+#: includes/class-aipt-settings.php:412
 msgid "Which model to choose?"
 msgstr "Яку модель обрати?"
 
-#: includes/class-aipt-settings.php:416
+#: includes/class-aipt-settings.php:417
 msgid "Best for"
 msgstr "Для чого підходить"
 
-#: includes/class-aipt-settings.php:417
+#: includes/class-aipt-settings.php:418
 msgid "Price per article"
 msgstr "Ціна за статтю"
 
-#: includes/class-aipt-settings.php:431
+#: includes/class-aipt-settings.php:432
 msgid ""
 "Prices are approximate, for a typical article of about 3,000 characters. "
 "Longer pages cost proportionally more; the exact amount for every "
@@ -1396,50 +1612,56 @@ msgstr ""
 "сторінки коштують пропорційно дорожче; точна сума кожного перекладу "
 "відображається в журналі витрат вище."
 
-#: includes/class-aipt-settings.php:443
+#: includes/class-aipt-settings.php:444
 msgid "Translation costs"
 msgstr "Витрати на переклад"
 
-#: includes/class-aipt-settings.php:450
+#: includes/class-aipt-settings.php:451
 msgid "Total spent"
 msgstr "Усього витрачено"
 
-#: includes/class-aipt-settings.php:454
+#: includes/class-aipt-settings.php:455
 msgid "Spent today"
 msgstr "Витрачено сьогодні"
 
-#: includes/class-aipt-settings.php:458
+#: includes/class-aipt-settings.php:459
 msgid "Translations"
 msgstr "Перекладів"
 
-#: includes/class-aipt-settings.php:464
+#: includes/class-aipt-settings.php:465
 msgid ""
 "No translations yet. Costs will appear here after the first translation."
 msgstr "Перекладів поки немає. Витрати з'являться тут після першого перекладу."
 
 #. translators: %d: maximum number of cost log entries kept
-#: includes/class-aipt-settings.php:469
+#: includes/class-aipt-settings.php:470
 #, php-format
 msgid "Showing the latest %d entries; totals cover all translations."
 msgstr "Показано останні %d записів; підсумки — за весь час."
 
-#: includes/class-aipt-settings.php:476
+#: includes/class-aipt-settings.php:477
 msgid "Date"
 msgstr "Дата"
 
-#: includes/class-aipt-settings.php:477
+#: includes/class-aipt-settings.php:478
 msgid "Post"
 msgstr "Запис"
 
-#: includes/class-aipt-settings.php:480
+#: includes/class-aipt-settings.php:481
 msgid "Tokens"
 msgstr "Токени"
 
 #. translators: %s: string domain, e.g. admin_texts_wpseo_titles
-#: includes/class-aipt-strings.php:111
+#: includes/class-aipt-strings.php:112
 #, php-format
 msgid "Strings: %s"
 msgstr "Рядки: %s"
+
+#. translators: %s: comma-separated meta keys
+#: includes/class-aipt-strings.php:198
+#, php-format
+msgid "Field %s kept in the source language: placeholders changed."
+msgstr "Поле %s залишено вихідною мовою: плейсхолдери змінилися."
 
 #. translators: %s: taxonomy name, e.g. "Categories"
 #: includes/class-aipt-terms.php:74
@@ -1480,12 +1702,12 @@ msgstr "Недостатньо прав для зміни наявного пе�
 msgid "You do not have permission to create a translation."
 msgstr "Недостатньо прав для створення перекладу."
 
-#: includes/class-aipt-writer.php:93
+#: includes/class-aipt-writer.php:95
 msgid "Translation is incomplete — some text parts are missing."
 msgstr "Переклад не завершено — відсутні частини тексту."
 
 #. translators: 1: translation post ID, 2: error message
-#: includes/class-aipt-writer.php:350
+#: includes/class-aipt-writer.php:360
 #, php-format
 msgid ""
 "Translation #%1$d was saved as a draft, but its status or slug could not be "
@@ -1495,7 +1717,7 @@ msgstr ""
 "ярлик: %2$s"
 
 #. translators: 1: multilingual plugin name, e.g. Polylang, 2: error message
-#: includes/class-aipt-writer.php:368
+#: includes/class-aipt-writer.php:378
 #, php-format
 msgid ""
 "The translation could not be linked by %1$s and the created post was "
@@ -1503,13 +1725,13 @@ msgid ""
 msgstr "%1$s не вдалося пов’язати переклад, створений запис видалено: %2$s"
 
 #. translators: 1: translation post ID, 2: error message
-#: includes/class-aipt-writer.php:375
+#: includes/class-aipt-writer.php:385
 #, php-format
 msgid "Translation post #%1$d was updated but could not be linked: %2$s"
 msgstr "Запис перекладу #%1$d оновлено, але його не вдалося пов’язати: %2$s"
 
 #. translators: 1: translation post ID, 2: error message
-#: includes/class-aipt-writer.php:378
+#: includes/class-aipt-writer.php:388
 #, php-format
 msgid ""
 "Translation post #%1$d was created and linked, but the final step failed: "
@@ -1518,7 +1740,7 @@ msgstr ""
 "Запис перекладу #%1$d створено й пов’язано, але останній крок не вдався: %2$s"
 
 #. translators: 1: translation post ID, 2: error message
-#: includes/class-aipt-writer.php:381
+#: includes/class-aipt-writer.php:391
 #, php-format
 msgid "Translation post #%1$d was created but could not be linked: %2$s"
 msgstr "Запис перекладу #%1$d створено, але його не вдалося пов’язати: %2$s"
@@ -1535,12 +1757,12 @@ msgstr "Polylang не пов’язав запис #%1$d як переклад (
 msgid "Polylang did not link term #%1$d as the %3$s translation of term #%2$d."
 msgstr "Polylang не пов’язав термін #%1$d як переклад (%3$s) терміна #%2$d."
 
-#: includes/lang/class-aipt-lang-polylang.php:273
+#: includes/lang/class-aipt-lang-polylang.php:302
 msgid "String translation is only supported on WPML (String Translation)."
 msgstr "Переклад рядків підтримується лише у WPML (String Translation)."
 
 #. translators: 1: string ID, 2: language code
-#: includes/lang/class-aipt-lang-wpml-strings.php:103
+#: includes/lang/class-aipt-lang-wpml-strings.php:118
 #, php-format
 msgid ""
 "WPML did not save the %2$s translation of string #%1$d (the string no longer "
@@ -1550,12 +1772,12 @@ msgstr ""
 "зарезервований для перекладача)."
 
 #. translators: %s: database error
-#: includes/lang/class-aipt-lang-wpml-strings.php:116
+#: includes/lang/class-aipt-lang-wpml-strings.php:131
 #, php-format
 msgid "WPML strings could not be read: %s"
 msgstr "Не вдалося прочитати рядки WPML: %s"
 
-#: includes/lang/class-aipt-lang-wpml-strings.php:126
+#: includes/lang/class-aipt-lang-wpml-strings.php:141
 msgid "WPML String Translation is not active."
 msgstr "WPML String Translation неактивний."
 
@@ -1579,7 +1801,7 @@ msgstr ""
 "WooCommerce Multilingual активний, але його синхронізація товарів (%s) "
 "недоступна."
 
-#: includes/lang/class-aipt-lang-wpml.php:243
+#: includes/lang/class-aipt-lang-wpml.php:245
 msgid ""
 "WPML's save handler could not be suspended, so WPML may have assigned the "
 "translation to the wrong language. The translation was not linked."
@@ -1587,16 +1809,16 @@ msgstr ""
 "Не вдалося призупинити обробник збереження WPML, тому WPML міг призначити "
 "перекладу неправильну мову. Переклад не пов’язано."
 
-#: includes/lang/class-aipt-lang-wpml.php:254
+#: includes/lang/class-aipt-lang-wpml.php:256
 msgid ""
 "the source post has no WPML language or is already in the target language"
 msgstr "вихідний запис не має мови WPML або вже має цільову мову"
 
-#: includes/lang/class-aipt-lang-wpml.php:265
+#: includes/lang/class-aipt-lang-wpml.php:267
 msgid "the post does not resolve as the translation after linking"
 msgstr "після зв’язування запис не визначається як переклад"
 
-#: includes/lang/class-aipt-lang-wpml.php:272
+#: includes/lang/class-aipt-lang-wpml.php:274
 msgid ""
 "WPML started translation work for this language while the translation was "
 "being written; its WPML translation status was not changed."
@@ -1604,32 +1826,32 @@ msgstr ""
 "Під час запису перекладу у WPML почалася робота над перекладом цією мовою; "
 "статус перекладу у WPML не змінено."
 
-#: includes/lang/class-aipt-lang-wpml.php:286
+#: includes/lang/class-aipt-lang-wpml.php:288
 msgid "the link did not survive the WPML/WCML sync"
 msgstr "зв’язок не зберігся після синхронізації WPML/WCML"
 
 #. translators: %d: post ID
-#: includes/lang/class-aipt-lang-wpml.php:355
+#: includes/lang/class-aipt-lang-wpml.php:358
 #, php-format
 msgid "post #%d is already the translation in this language"
 msgstr "запис #%d уже є перекладом цією мовою"
 
-#: includes/lang/class-aipt-lang-wpml.php:360
+#: includes/lang/class-aipt-lang-wpml.php:363
 msgid "WPML has translation work in progress for this language"
 msgstr "у WPML уже триває робота над перекладом цією мовою"
 
-#: includes/lang/class-aipt-lang-wpml.php:364
+#: includes/lang/class-aipt-lang-wpml.php:367
 msgid "the post already belongs to a translation group"
 msgstr "запис уже входить до групи перекладів"
 
 #. translators: 1: translation post ID, 2: language code, 3: reason
-#: includes/lang/class-aipt-lang-wpml.php:488
+#: includes/lang/class-aipt-lang-wpml.php:491
 #, php-format
 msgid "WPML did not link post #%1$d as the %2$s translation: %3$s."
 msgstr "WPML не пов’язав запис #%1$d як переклад (%2$s): %3$s."
 
 #. translators: 1: translation term ID, 2: source term ID, 3: language code
-#: includes/lang/class-aipt-lang-wpml.php:498
+#: includes/lang/class-aipt-lang-wpml.php:501
 #, php-format
 msgid "WPML did not link term #%1$d as the %3$s translation of term #%2$d."
 msgstr "WPML не пов’язав термін #%1$d як переклад (%3$s) терміна #%2$d."

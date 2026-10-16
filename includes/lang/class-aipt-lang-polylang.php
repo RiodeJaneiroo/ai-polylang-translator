@@ -251,6 +251,30 @@ class AIPT_Lang_Polylang implements AIPT_Lang {
 		return array('_pll_');
 	}
 
+	// What Polylang's integrations add to an empty list when a translation is created ($sync
+	// false; PLL_Sync_Post_Metas::get_metas_to_copy() would add every public key as base):
+	// Yoast SEO (integrations/wpseo/wpseo.php: text keys, images, robots, primary terms), the
+	// wpml-config.xml <custom-field> module, AIPT_Auto::exclude_meta(). Polylang registers
+	// its Yoast filters in every context except PLL_Frontend. Under ALTERNATE_WP_CRON,
+	// wp-cron.php is included after plugins_loaded, so PLL() is PLL_Frontend there and
+	// neither the Yoast keys nor the primary-term remap come from Polylang: AIPT_Yoast
+	// supplies the keys (AIPT_Yoast::add_copied_keys()) and translate_meta_value() the remap.
+	public function copy_meta_keys(int $from, int $to, string $lang): array {
+		return array_filter(array_map('strval', (array) apply_filters('pll_copy_post_metas', array(), false, $from, $to, $lang)));
+	}
+
+	// Polylang's full signature (modules/sync/sync-metas.php:137); Yoast SEO's primary term
+	// goes through pll_get_term (integrations/wpseo/wpseo.php) when that integration is
+	// hooked. A primary term the filter returned unchanged was not remapped (PLL_Frontend,
+	// see above): it becomes its translation here, 0 when there is none.
+	public function translate_meta_value($value, string $key, string $lang, int $from, int $to) {
+		$mapped = apply_filters('pll_translate_post_meta', $value, $key, $lang, $from, $to);
+		if ($mapped === $value && is_numeric($value) && AIPT_Yoast::is_primary_key($key)) {
+			return $this->term_translation((int) $value, $lang);
+		}
+		return $mapped;
+	}
+
 	// Polylang keeps no parsed block config: AIPT_Block_Attrs_Config reads wpml-config.xml.
 	public function block_text_attributes(): array {
 		return array();

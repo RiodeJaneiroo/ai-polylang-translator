@@ -374,8 +374,9 @@ class AIPT_Settings {
 								<td>
 									<label>
 										<input type="checkbox" name="aipt_settings[translate_yoast]" value="1" <?php checked($settings['translate_yoast']); ?>>
-										<?php esc_html_e('Translate SEO title, description and focus keyphrase', 'ai-polylang-translator'); ?>
+										<?php esc_html_e('Translate Yoast SEO fields', 'ai-polylang-translator'); ?>
 									</label>
+									<p class="description"><?php esc_html_e('Translated: SEO title, meta description, breadcrumb title, focus keyphrase, Facebook and X (Twitter) titles and descriptions. Copied to the translation as they are: robots settings (noindex, nofollow, advanced), Facebook and X images, and the primary category or term, replaced with its translation. Canonical URL and redirect are never copied. When this box is unticked, Yoast SEO fields are not touched.', 'ai-polylang-translator'); ?></p>
 								</td>
 							</tr>
 						<?php endif; ?>

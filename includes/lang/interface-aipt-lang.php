@@ -139,6 +139,29 @@ interface AIPT_Lang {
 	public function service_meta_prefixes(): array;
 
 	/**
+	 * Meta keys the multilingual plugin would copy from $from to its new translation $to in
+	 * $lang (integrations such as Yoast SEO, wpml-config.xml custom fields). Read-only; the
+	 * writer copies them itself (AIPT_Meta_Copy::backend()) because the backend's own copy
+	 * runs in the sync-on-save handler the writer suspends. May contain keys the writer
+	 * handles itself (_thumbnail_id, _wp_page_template, translated keys) and duplicates:
+	 * the caller filters.
+	 *
+	 * @return string[]
+	 */
+	public function copy_meta_keys(int $from, int $to, string $lang): array;
+
+	/**
+	 * A meta value copied from post $from to its translation $to in $lang, adjusted the way
+	 * the multilingual plugin would adjust it (its copied-value filters; e.g. the term id of
+	 * _yoast_wpseo_primary_<taxonomy> replaced by the target term). Returns $value unchanged
+	 * when nothing applies.
+	 *
+	 * @param mixed $value
+	 * @return mixed
+	 */
+	public function translate_meta_value($value, string $key, string $lang, int $from, int $to);
+
+	/**
 	 * Whether the backend has a string translation to read and write (strings(),
 	 * string_domains() and save_string_translation() return 'aipt_strings_unsupported'
 	 * otherwise, before any query).

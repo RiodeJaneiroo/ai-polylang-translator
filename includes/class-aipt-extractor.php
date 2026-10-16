@@ -2,7 +2,8 @@
 // Collects translatable strings from a post. Item paths:
 //   ['post', 'title' | 'excerpt'] | ['post', 'content', N] (block delimiters masked per
 //   chunk by AIPT_Blocks; maps in 'blocks', keyed by N, only for chunks that had any)
-//   ['meta', meta_key] (Yoast keys and the extra_meta_keys setting)
+//   ['meta', meta_key] (aipt_translated_meta_keys, with AIPT_Yoast::TRANSLATE_KEYS, and the
+//   extra_meta_keys setting)
 //   ['woo', 'attr', key, 'name' | 'value', i] (see AIPT_Woo)
 //   ['acf', field_key, row, sub_key, ...] (+ ['#chunk', N] suffix for long wysiwyg)
 // Raw ACF values (format_value = false) keep repeater/flexible rows indexed by
@@ -17,8 +18,6 @@ class AIPT_Extractor {
 	const CHUNK_SIZE  = 8192;
 	const BATCH_BYTES = 8192;
 	const BATCH_ITEMS = 60;
-
-	const YOAST_KEYS = array('_yoast_wpseo_title', '_yoast_wpseo_metadesc', '_yoast_wpseo_focuskw');
 
 	/**
 	 * @param int    $target_id Existing translation (0 = none).
@@ -67,23 +66,23 @@ class AIPT_Extractor {
 		}
 
 		$meta      = array();
-		$meta_keys = $settings['translate_yoast'] && aipt_yoast_active() ? self::YOAST_KEYS : array();
-		// Extra keys travel only with a non-empty string value, so an empty or missing
-		// source value never clears the translation's own value.
-		foreach ((array) $settings['extra_meta_keys'] as $meta_key) {
-			$value = is_string($meta_key) ? get_post_meta($post_id, $meta_key, true) : null;
-			if (is_string($value) && trim($value) !== '' && !in_array($meta_key, $meta_keys, true)) {
-				$meta_keys[] = $meta_key;
-			}
-		}
+		$meta_keys = apply_filters('aipt_translated_meta_keys', array(), $post_id);
+		$meta_keys = array_merge((array) $meta_keys, (array) $settings['extra_meta_keys']);
+		$meta_keys = array_values(array_unique(array_filter(array_map('trim', array_filter($meta_keys, 'is_string')), 'strlen')));
 		foreach ($meta_keys as $meta_key) {
-			$value = (string) get_post_meta($post_id, $meta_key, true);
+			// Only a non-empty string travels: an empty or missing source value never clears
+			// the translation's own value, and a non-string value is never flattened.
+			$value = get_post_meta($post_id, $meta_key, true);
+			if (!is_string($value) || trim($value) === '') {
+				continue;
+			}
 			$meta[$meta_key] = $value;
 			$target_value = $target_post ? get_post_meta($target_id, $meta_key, true) : null;
 			if ($target_post && AIPT_Safe_Merge::preserve_value(array('meta', $meta_key), $target_value, array(), $preserve)) {
 				continue;
 			}
-			if (self::is_translatable($value)) {
+			// Placeholder-only values (Yoast templates) are not sent: the writer keeps the source.
+			if (AIPT_Strings::has_text($value)) {
 				$add(array('meta', $meta_key), $value);
 			}
 		}

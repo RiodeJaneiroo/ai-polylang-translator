@@ -87,6 +87,7 @@ class AIPT_Writer {
 		$meta           = (array) ($job['meta'] ?? array());
 		$acf_chunks     = array();
 		$fallbacks      = array();
+		$kept_meta      = array();
 		// Translated block attribute texts rebuilt into the delimiters restore() puts back.
 		$job['blocks']  = AIPT_Block_Attrs::apply($job, $results, $kses);
 		foreach ($job['items'] as $id => $item) {
@@ -113,7 +114,12 @@ class AIPT_Writer {
 					break;
 
 				case 'meta':
-					$meta[$path[1]] = $text;
+					// Changed %%…%% / printf placeholders: $meta keeps the source value (warning).
+					if (AIPT_Strings::placeholders_match((string) ($meta[$path[1]] ?? ''), $text)) {
+						$meta[$path[1]] = $text;
+					} else {
+						$kept_meta[] = $path[1];
+					}
 					break;
 
 				case 'acf':
@@ -238,7 +244,7 @@ class AIPT_Writer {
 				update_post_meta($new_id, $meta_key, wp_slash($meta_value));
 			}
 		}
-		AIPT_Meta_Copy::post($source->ID, $new_id, array_keys($meta));
+		AIPT_Meta_Copy::post($source->ID, $new_id, $target, array_keys($meta), $safe, $existing === 0);
 		AIPT_Woo::write($new_id, $job, $results, $safe, $preserve_map);
 
 		if (aipt_acf_active()) {
@@ -310,9 +316,12 @@ class AIPT_Writer {
 			}
 		}
 		// Meta, attributes and terms are all in place: page caches and site code may react.
+		// The source too: its translation group (a taxonomy on Polylang) and the language
+		// switcher / hreflang links derived from it change when a translation is linked.
 		clean_post_cache($new_id);
+		clean_post_cache($source->ID);
 		do_action('aipt_translation_written', $new_id, $source->ID, $target, !$existing);
-		return AIPT_Blocks::result($result, $fallbacks, $new_id, !$existing);
+		return AIPT_Strings::meta_result(AIPT_Blocks::result($result, $fallbacks, $new_id, !$existing), $kept_meta, $new_id);
 	}
 
 	/**

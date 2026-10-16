@@ -15,8 +15,9 @@ class AIPT_Strings {
 	// Appended to the gateway's system prompt for string batches.
 	const PROMPT_RULE = 'The values are interface strings and SEO title/description templates. Keep every placeholder exactly as it is: variables of the form %%name%%, printf placeholders such as %s, %d or %1$s, and anything in double curly braces such as {{name}}. Keep HTML tags and their attributes unchanged.';
 
-	// Placeholders that must come back unchanged (the same multiset as in the source).
-	const PLACEHOLDERS = '/%%[A-Za-z0-9_\-]+%%|%(?:\d+\$)?[sdfFu]|\{\{.*?\}\}/u';
+	// Placeholders that must come back unchanged (the same multiset as in the source). A
+	// printf letter followed by a letter or digit is text (percent-encoding, "100%free").
+	const PLACEHOLDERS = '/%%[A-Za-z0-9_\-]+%%|%(?:\d+\$)?[sdfFu](?![A-Za-z0-9])|\{\{.*?\}\}/u';
 
 	// Hard cap on strings to translate in one slice(), whatever the batch packing.
 	const SLICE_MAX_STRINGS = 120;
@@ -136,8 +137,7 @@ class AIPT_Strings {
 		if ($value === '') {
 			return 'skipped_empty';
 		}
-		$text = wp_strip_all_tags((string) preg_replace(self::PLACEHOLDERS, ' ', $value));
-		if (!AIPT_Extractor::is_translatable($text)) {
+		if (!self::has_text($value)) {
 			return 'skipped_no_text';
 		}
 		return $string['translated'] && !$update ? 'skipped_existing' : '';
@@ -151,7 +151,7 @@ class AIPT_Strings {
 		if (trim($text) === '') {
 			return AIPT_Record::outcome('error', 0, $cost, 'the model returned an empty translation', true);
 		}
-		if (self::placeholders($text) !== self::placeholders($string['value'])) {
+		if (!self::placeholders_match($string['value'], $text)) {
 			return AIPT_Record::outcome('error', 0, $cost, sprintf(
 				'placeholders changed, not saved: %s -> %s',
 				implode(' ', self::placeholders($string['value'])),
@@ -163,6 +163,44 @@ class AIPT_Strings {
 			return AIPT_Record::outcome('error', 0, $cost, $saved->get_error_message(), true);
 		}
 		return AIPT_Record::outcome($string['translated'] ? 'updated' : 'created', 0, $cost, $text, true);
+	}
+
+	/**
+	 * Whether $value has text to translate besides placeholders, separators and markup
+	 * (e.g. not "%%title%% %%sep%% %%sitename%%").
+	 */
+	public static function has_text(string $value): bool {
+		return AIPT_Extractor::is_translatable(wp_strip_all_tags((string) preg_replace(self::PLACEHOLDERS, ' ', $value)));
+	}
+
+	/**
+	 * Whether $translated has exactly the placeholders of $source.
+	 */
+	public static function placeholders_match(string $source, string $translated): bool {
+		return self::placeholders($source) === self::placeholders($translated);
+	}
+
+	/**
+	 * The writer's result plus a warning for translated meta values that kept the source
+	 * text because their placeholders changed: 'aipt_written_with_warning' like
+	 * AIPT_Blocks::result(), added to $written when it already is that warning. The post
+	 * status is not affected (a new translation is not left as a draft for it).
+	 *
+	 * @param int|WP_Error $written The writer's result.
+	 * @param string[]     $keys    Meta keys that kept the source value.
+	 * @return int|WP_Error
+	 */
+	public static function meta_result($written, array $keys, int $post_id) {
+		if (!$keys) {
+			return $written;
+		}
+		/* translators: %s: comma-separated meta keys */
+		$message = sprintf(__('Field %s kept in the source language: placeholders changed.', 'ai-polylang-translator'), implode(', ', $keys));
+		if (is_wp_error($written)) {
+			$written->add('aipt_written_with_warning', $message, array('post_id' => $post_id));
+			return $written;
+		}
+		return new WP_Error('aipt_written_with_warning', $message, array('post_id' => $post_id));
 	}
 
 	/**

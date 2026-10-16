@@ -18,10 +18,12 @@ if (!defined('ABSPATH')) {
 require_once __DIR__ . '/class-aipt-lang-wpml-tm.php';
 require_once __DIR__ . '/class-aipt-lang-wpml-sync.php';
 require_once __DIR__ . '/class-aipt-lang-wpml-strings.php';
+require_once __DIR__ . '/class-aipt-lang-wpml-meta.php';
 
 class AIPT_Lang_WPML implements AIPT_Lang {
 
 	use AIPT_Lang_WPML_Strings;
+	use AIPT_Lang_WPML_Meta;
 
 	/** @var array<string, array{code: string, name: string}>|null */
 	private $languages = null;
@@ -327,16 +329,17 @@ class AIPT_Lang_WPML implements AIPT_Lang {
 	// See AIPT_Lang_WPML_Sync::suspend(): the API checks run first; on failure nothing is
 	// removed and a WP_Error is returned.
 	public function suspend_sync() {
-		return $this->sync->suspend();
+		return $this->hook_copied_value_filter($this->sync->suspend());
 	}
 
 	public function restore_sync(array $state): void {
+		$this->unhook_copied_value_filter();
 		$this->sync->restore($state);
 	}
 
 	// Nothing: wpml-config.xml in the plugin root keeps the auto-translation markers
-	// (AIPT_Auto::MARKER, AIPT_Auto::USER_META) and the job id (AIPT_Pipeline::JOB_META)
-	// out of WPML's custom-field sync.
+	// (AIPT_Auto::MARKER, AIPT_Auto::USER_META), the auto status (AIPT_Auto_Status::META)
+	// and the job id (AIPT_Pipeline::JOB_META) out of WPML's custom-field sync.
 	public function register_hooks(): void {
 	}
 

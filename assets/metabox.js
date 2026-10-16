@@ -157,7 +157,44 @@
 		});
 	}
 
+	// Retry of a failed, lost or stalled automatic translation (AIPT_Auto::retry()).
+	function retryAuto(button) {
+		var box = button.parentNode.querySelector('.aipt-auto-status');
+
+		function fail(message) {
+			button.disabled = false;
+			box.innerHTML = '';
+			var text = document.createElement('span');
+			text.className = 'aipt-error';
+			text.textContent = cfg.i18n.error + ' ' + (message || 'unknown');
+			box.appendChild(text);
+		}
+
+		button.disabled = true;
+		box.textContent = '';
+		post('aipt_auto_retry').then(function (response) {
+			var message = response.data && response.data.message;
+			if (!response.success) {
+				fail(message);
+				return;
+			}
+			var text = document.createElement('div');
+			text.className = 'aipt-auto-line';
+			text.textContent = message || '';
+			button.parentNode.replaceChild(text, button);
+		}).catch(function (error) {
+			fail(String(error));
+		});
+	}
+
 	document.addEventListener('click', function (event) {
+		var retry = event.target.closest('#aipt_metabox .aipt-auto-retry');
+		if (retry) {
+			if (!retry.disabled) {
+				retryAuto(retry);
+			}
+			return;
+		}
 		var button = event.target.closest('#aipt_metabox .aipt-translate');
 		if (!button || button.disabled) {
 			return;

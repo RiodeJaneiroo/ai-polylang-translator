@@ -97,7 +97,7 @@ class AIPT_Settings_Advanced {
 				<p class="description"><?php
 					echo wp_kses(sprintf(
 						/* translators: %s: example meta key */
-						esc_html__('Custom fields with plain text to translate, one meta key per line (e.g. %s). Only text values are translated; Yoast SEO fields are handled separately.', 'ai-polylang-translator'),
+						esc_html__('Custom fields with plain text to translate, one meta key per line (e.g. %s). Only text values are translated; Yoast SEO fields are handled automatically (see Yoast SEO above) and cannot be listed here.', 'ai-polylang-translator'),
 						'<code>_price_unit</code>'
 					), array('code' => array()));
 				?></p>

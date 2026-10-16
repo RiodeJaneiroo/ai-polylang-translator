@@ -196,6 +196,13 @@ class AIPT_Gateway {
 		return $response;
 	}
 
+	// Error codes of post() worth a later retry: the connection or a timeout (aipt_http),
+	// HTTP 408, rate limits (429) and server errors (5xx).
+	public static function is_transient_error(string $code): bool {
+		return in_array($code, array('aipt_http', 'aipt_http_408', 'aipt_http_429'), true)
+			|| preg_match('/^aipt_http_5\d\d$/', $code) === 1;
+	}
+
 	/**
 	 * @return string|WP_Error
 	 */

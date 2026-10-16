@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Translator for Polylang & WPML
  * Description: AI translation of posts, WooCommerce products, terms and ACF fields into other Polylang or WPML languages via Vercel AI Gateway.
- * Version: 1.7.1
+ * Version: 1.8.0
  * Author: Vadym Zm
  * Author URI: https://artzm.dev/
  * Text Domain: ai-polylang-translator
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 	exit;
 }
 
-define('AIPT_VERSION', '1.7.1');
+define('AIPT_VERSION', '1.8.0');
 define('AIPT_FILE', __FILE__);
 define('AIPT_DIR', plugin_dir_path(__FILE__));
 define('AIPT_URL', plugin_dir_url(__FILE__));
@@ -77,6 +77,7 @@ add_action('plugins_loaded', function () {
 	require_once AIPT_DIR . 'includes/class-aipt-job.php';
 	require_once AIPT_DIR . 'includes/class-aipt-usage.php';
 	require_once AIPT_DIR . 'includes/class-aipt-slug.php';
+	require_once AIPT_DIR . 'includes/class-aipt-yoast.php';
 	require_once AIPT_DIR . 'includes/class-aipt-meta-copy.php';
 	require_once AIPT_DIR . 'includes/class-aipt-writer.php';
 	require_once AIPT_DIR . 'includes/class-aipt-record.php';
@@ -88,7 +89,10 @@ add_action('plugins_loaded', function () {
 	require_once AIPT_DIR . 'includes/class-aipt-select.php';
 	require_once AIPT_DIR . 'includes/class-aipt-runner-context.php';
 	require_once AIPT_DIR . 'includes/class-aipt-runner.php';
+	require_once AIPT_DIR . 'includes/class-aipt-auto-status.php';
+	require_once AIPT_DIR . 'includes/class-aipt-auto-run.php';
 	require_once AIPT_DIR . 'includes/class-aipt-auto.php';
+	require_once AIPT_DIR . 'includes/class-aipt-cache.php';
 	require_once AIPT_DIR . 'includes/class-aipt-metabox.php';
 
 	// Without an adapter only the settings page (API key, cost log) loads: no metabox,
@@ -104,6 +108,8 @@ add_action('plugins_loaded', function () {
 
 	$lang->register_hooks();
 	AIPT_Auto::register();
+	AIPT_Cache::register();
+	AIPT_Yoast::register();
 	AIPT_Block_Refs::register();
 
 	// The bulk page and its AJAX actions (admin-ajax.php is admin too).

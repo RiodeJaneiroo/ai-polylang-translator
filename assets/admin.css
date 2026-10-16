@@ -115,6 +115,37 @@ details.aipt-panel summary:hover .aipt-panel-title {
 	color: #b32d2e;
 }
 
+/* Automatic translation status in the metabox */
+.aipt-auto {
+	font-size: 12px;
+	margin-bottom: 8px;
+	padding-bottom: 8px;
+	border-bottom: 1px solid #eee;
+}
+
+.aipt-auto-line {
+	margin: 2px 0;
+}
+
+.aipt-auto-line.is-pending,
+.aipt-auto-line.is-running,
+.aipt-auto-line.is-skipped {
+	color: #646970;
+}
+
+.aipt-auto-line.is-failed {
+	color: #b32d2e;
+}
+
+.aipt-auto .aipt-auto-retry {
+	margin-top: 4px;
+}
+
+.aipt-auto-status {
+	display: block;
+	margin-top: 4px;
+}
+
 .aipt-ok {
 	color: #00a32a;
 }

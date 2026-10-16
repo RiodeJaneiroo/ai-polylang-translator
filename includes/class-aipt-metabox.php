@@ -13,6 +13,7 @@ class AIPT_Metabox {
 		add_action('wp_ajax_aipt_prepare', array($this, 'ajax_prepare'));
 		add_action('wp_ajax_aipt_translate_batch', array($this, 'ajax_translate_batch'));
 		add_action('wp_ajax_aipt_finalize', array($this, 'ajax_finalize'));
+		add_action('wp_ajax_aipt_auto_retry', array($this, 'ajax_auto_retry'));
 	}
 
 	public function register(): void {
@@ -81,8 +82,11 @@ class AIPT_Metabox {
 			return;
 		}
 
+		$languages = aipt_lang()->languages();
+		$this->render_auto($post, $languages);
+
 		echo '<div class="aipt-rows">';
-		foreach (aipt_lang()->languages() as $language) {
+		foreach ($languages as $language) {
 			if ($language['code'] === $source_lang) {
 				continue;
 			}
@@ -123,6 +127,48 @@ class AIPT_Metabox {
 		echo '</div>';
 	}
 
+	// Status of the automatic translation (AIPT_Auto_Status), with Retry when it failed,
+	// was lost or stalled (AIPT_Auto::retry_blocker()). The language rows below link to
+	// the translations.
+	private function render_auto(WP_Post $post, array $languages): void {
+		$status  = AIPT_Auto_Status::get($post->ID);
+		$lines   = $status !== null ? AIPT_Auto_Status::lines($status, $languages) : null;
+		$blocker = AIPT_Auto::retry_blocker($post, $status, $lines['retryable'] ?? null);
+		// Without a status only a legacy post (marked before 1.8.0, which kept no status, and
+		// still missing a language) shows a neutral line.
+		if ($status === null && $blocker) {
+			return;
+		}
+
+		echo '<div class="aipt-auto">';
+		$label = __('Retry automatic translation', 'ai-polylang-translator');
+		if ($status === null) {
+			$label = __('Translate missing languages automatically', 'ai-polylang-translator');
+			echo '<div class="aipt-auto-line is-pending">' . esc_html(sprintf(
+				/* translators: %s: comma-separated language codes */
+				__('No automatic translation status (translated before 1.8); languages without a translation: %s', 'ai-polylang-translator'),
+				implode(', ', AIPT_Auto::missing_languages($post->ID, AIPT_Settings::get()))
+			)) . '</div>';
+		} else {
+			if ($lines['post'] !== '') {
+				echo '<div class="aipt-auto-line is-' . esc_attr($status['status'] === 'failed' ? 'failed' : 'pending') . '">' . esc_html($lines['post']) . '</div>';
+			}
+			foreach ($lines['langs'] as $line) {
+				$name = $languages[$line['code']]['name'] ?? $line['code'];
+				echo '<div class="aipt-auto-line is-' . esc_attr($line['state']) . '" data-lang="' . esc_attr($line['code']) . '">'
+					. '<b>' . esc_html($name) . ':</b> ' . esc_html($line['text']) . '</div>';
+			}
+			// Why a failed run cannot be retried now (setting off, post ineligible).
+			if ($blocker && $blocker->get_error_code() !== 'aipt_auto_not_retryable' && $status['status'] === 'failed') {
+				echo '<div class="aipt-auto-line">' . esc_html($blocker->get_error_message()) . '</div>';
+			}
+		}
+		if (!$blocker) {
+			echo '<button type="button" class="button button-small aipt-auto-retry">' . esc_html($label) . '</button>';
+			echo '<span class="aipt-auto-status" aria-live="polite"></span>';
+		}
+		echo '</div>';
+	}
 
 	private function guard(): int {
 		$post_id = absint($_POST['post_id'] ?? 0);
@@ -177,6 +223,16 @@ class AIPT_Metabox {
 		// The job's stage after finalize is for the bulk layer; metabox.js does not get it.
 		if (is_array($result)) {
 			unset($result['stage']);
+		}
+		$this->send($result);
+	}
+
+	// Schedules a failed, lost or stalled automatic translation again (AIPT_Auto::retry()).
+	public function ajax_auto_retry(): void {
+		$post_id = $this->guard();
+		$result  = AIPT_Auto::retry($post_id, get_current_user_id());
+		if (!is_wp_error($result)) {
+			$result = array('message' => __('Automatic translation is scheduled; reload the post in a moment to see the result.', 'ai-polylang-translator'));
 		}
 		$this->send($result);
 	}

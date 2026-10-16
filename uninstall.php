@@ -16,6 +16,8 @@ delete_transient('aipt_block_attrs');
 wp_unschedule_hook('aipt_auto_translate');
 delete_post_meta_by_key('_aipt_auto_scheduled');
 delete_post_meta_by_key('_aipt_auto_user');
+// Status of the last automatic translation of each source post (AIPT_Auto_Status::META).
+delete_post_meta_by_key('_aipt_auto_status');
 // Job that wrote each translation (AIPT_Pipeline::JOB_META).
 delete_post_meta_by_key('_aipt_job');
 
